@@ -238,8 +238,12 @@ class GameEngine:
             player.capture_cards(captured_combo + [card])
             
             # Check for scopa (cleared table)
+            # CRITICAL: According to Scopone rules, the last card of the game 
+            # that empties the table does NOT count as scopa
             if not self.table:
-                player.add_sweep()
+                is_last_card_of_game = all(len(p.hand) == 0 for p in self.players)
+                if not is_last_card_of_game:
+                    player.add_sweep()
             
             self.last_capturer_idx = player_idx
         else:

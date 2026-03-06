@@ -10,6 +10,7 @@ from config.constants import (
     POINTS_FOR_MOST_COINS,
     POINTS_FOR_SETTEBELLO,
     POINTS_FOR_PRIMIERA,
+    POINTS_PER_SWEEP,
     THRESHOLD_CARDS,
     THRESHOLD_COINS
 )
@@ -102,12 +103,15 @@ class ScoringEngine:
         has_settebello = player.has_settebello()
         primiera_value = ScoringEngine.calculate_primiera(player.captured)
         
+        # Ensure sweeps are correctly counted (1 point per sweep)
+        sweeps_points = player.sweeps * POINTS_PER_SWEEP
+        
         points = {
             'cards': POINTS_FOR_MOST_CARDS if captured_count > THRESHOLD_CARDS else 0,
             'coins': POINTS_FOR_MOST_COINS if coins_count > THRESHOLD_COINS else 0,
             'settebello': POINTS_FOR_SETTEBELLO if has_settebello else 0,
             'primiera': 0,  # Will be assigned later based on comparison
-            'sweeps': player.sweeps
+            'sweeps': sweeps_points
         }
         
         total = sum(points.values())
@@ -238,8 +242,9 @@ class ScoringEngine:
             if team_data['settebello']:
                 points += POINTS_FOR_SETTEBELLO
             
-            # Sweeps points
-            points += team_data['sweeps']
+            # Sweeps points (each sweep is 1 point)
+            sweeps_points = team_data['sweeps'] * POINTS_PER_SWEEP
+            points += sweeps_points
             
             final_team_scores.append({
                 'team': team_id,
@@ -255,7 +260,7 @@ class ScoringEngine:
                     'coins': POINTS_FOR_MOST_COINS if coins_in_team > THRESHOLD_COINS else 0,
                     'settebello': POINTS_FOR_SETTEBELLO if team_data['settebello'] else 0,
                     'primiera': 0,  # Will be assigned next
-                    'sweeps': team_data['sweeps']
+                    'sweeps': sweeps_points
                 }
             })
         
