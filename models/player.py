@@ -62,6 +62,9 @@ class Player:
             self.hand.extend(cards)
         else:
             self.hand.append(cards)
+
+        # Keep hand sorted from low to high value for readability and strategy.
+        self.hand.sort(key=lambda c: (c[0], c[1]))
     
     def remove_from_hand(self, card):
         """

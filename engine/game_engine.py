@@ -135,7 +135,6 @@ class GameEngine:
             for i in range(self.num_players):
                 cards = self.deck[i*10:(i+1)*10]
                 self.players[i].add_to_hand(cards)
-                self.seen_cards.update(cards)
                 
             # Save remaining 20 cards for restocking
             self.deck_remaining = self.deck[20:]
@@ -155,7 +154,6 @@ class GameEngine:
                 end = start + cards_per_player
                 cards = remaining_cards[start:end]
                 self.players[i].add_to_hand(cards)
-                self.seen_cards.update(cards)
             
             # No remaining cards to track in 4-player mode
             self.deck_remaining = []
@@ -180,7 +178,6 @@ class GameEngine:
                 if end <= len(self.deck_remaining):
                     cards = self.deck_remaining[start:end]
                     self.players[i].add_to_hand(cards)
-                    self.seen_cards.update(cards)
         
         # Remove used cards from remaining deck
         self.deck_remaining = self.deck_remaining[self.num_players * 10:]
@@ -261,7 +258,7 @@ class GameEngine:
     
     def next_player(self):
         """Advance to the next player's turn."""
-        self.current_player_idx = (self.current_player_idx + 1) % self.num_players
+        self.current_player_idx = (self.current_player_idx - 1) % self.num_players
     
     def end_game(self):
         """

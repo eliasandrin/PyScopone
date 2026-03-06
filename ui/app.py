@@ -425,11 +425,16 @@ class ScoponeApp(tk.Tk):
         
         # Get AI strategy
         ai_strategy = get_ai_strategy(self.ai_difficulty)
-        card_to_play = ai_strategy.choose_card(current_player.hand, self.engine.table)
+        card_to_play = ai_strategy.choose_card(
+            current_player.hand, 
+            self.engine.table,
+            seen_cards=self.engine.seen_cards
+        )
         
         if card_to_play:
             self.engine.play_card(current_player.id, card_to_play)
             self.log(f"🤖 {current_player.name} gioca {card_to_play[0]}{SIMBOLI[card_to_play[1]]}")
+            self.log(f"   Motivo AI: {ai_strategy.get_last_decision_reason()}")
         
         self.engine.next_player()
         self.update_display()
