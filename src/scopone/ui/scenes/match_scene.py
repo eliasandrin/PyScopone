@@ -19,6 +19,12 @@ from scopone.ui.backgrounds import draw_prismatic_background
 from scopone.ui.scene_manager import Scene
 
 
+TEAM_COLORS = {
+    0: (117, 185, 255),
+    1: (255, 176, 96),
+}
+
+
 class MatchScene(Scene):
     """Renders the live match and translates user actions into engine calls."""
 
@@ -61,8 +67,8 @@ class MatchScene(Scene):
 
     def _append_log(self, message: str) -> None:
         self.log_messages.append(message)
-        if len(self.log_messages) > 36:
-            self.log_messages = self.log_messages[-36:]
+        if len(self.log_messages) > 40:
+            self.log_messages = self.log_messages[-40:]
 
     def handle_event(self, event) -> None:
         if self.engine is None:
@@ -81,9 +87,10 @@ class MatchScene(Scene):
             return
 
         if event.type == pygame.MOUSEMOTION and self.log_dragging and self.log_rect is not None:
-            new_x = event.pos[0] - self.log_drag_offset[0]
-            new_y = event.pos[1] - self.log_drag_offset[1]
-            self.log_rect.topleft = (new_x, new_y)
+            self.log_rect.topleft = (
+                event.pos[0] - self.log_drag_offset[0],
+                event.pos[1] - self.log_drag_offset[1],
+            )
             self._clamp_log_rect()
             return
 
@@ -119,6 +126,7 @@ class MatchScene(Scene):
         for action, rect in self.menu_buttons.items():
             if not rect.collidepoint(pos):
                 continue
+
             if action == "difficulty":
                 self._cycle_difficulty()
             elif action == "toggle_cards":
@@ -126,6 +134,9 @@ class MatchScene(Scene):
                 mode = "attiva" if self.settings["show_all_cards"] else "disattiva"
                 self._append_log("Visualizzazione carte IA {0}.".format(mode))
             elif action == "resume":
+                self.menu_open = False
+            elif action == "log":
+                self.log_visible = True
                 self.menu_open = False
             elif action == "new_game":
                 self._start_new_game()
@@ -136,9 +147,8 @@ class MatchScene(Scene):
     def _cycle_difficulty(self) -> None:
         difficulties = ["easy", "normal", "expert", "adaptive"]
         current = difficulties.index(self.settings["difficulty"])
-        next_value = difficulties[(current + 1) % len(difficulties)]
-        self.settings["difficulty"] = next_value
-        self._append_log("Difficolta AI impostata su {0}.".format(next_value))
+        self.settings["difficulty"] = difficulties[(current + 1) % len(difficulties)]
+        self._append_log("Difficolta AI impostata su {0}.".format(self.settings["difficulty"]))
 
     def update(self, dt: float) -> None:
         if self.engine is None or self.result_dispatched:
@@ -217,11 +227,10 @@ class MatchScene(Scene):
         self.menu_button_rect = layout["menu_button"]
 
         self._draw_table(renderer, layout["table_rect"])
+        self._draw_table_cards(renderer, layout["table_rect"])
         self._draw_live_score_panel(renderer, layout["score_panel"])
         self._draw_menu_button(renderer, layout["menu_button"], mouse_pos)
         self._draw_players(renderer, layout)
-        self._draw_table_cards(renderer, layout["table_rect"])
-        self._draw_human_hand(renderer, layout["bottom_player_rect"])
 
         if self.log_visible:
             self._draw_log_overlay(renderer)
@@ -230,21 +239,37 @@ class MatchScene(Scene):
             self._draw_menu_overlay(renderer, layout["overlay_rect"], mouse_pos)
 
     def _calculate_layout(self, width: int, height: int):
-        margin = self._clamp(int(min(width, height) * 0.018), 12, 26)
-        top_band = self._clamp(int(height * 0.16), 110, 150)
-        bottom_band = self._clamp(int(height * 0.24), 170, 230)
-        side_band = self._clamp(int(width * 0.13), 120, 170)
+        margin = self._clamp(int(min(width, height) * 0.02), 14, 28)
+        label_lane = self._clamp(int(min(width, height) * 0.06), 48, 64)
+        top_cards_height = self._clamp(int(height * 0.1), 84, 108)
+        bottom_cards_height = self._clamp(int(height * 0.18), 150, 208)
+        side_cards_width = self._clamp(int(width * 0.145), 138, 182)
+
+        score_panel = pygame.Rect(margin, margin, 322, 132)
+        menu_button = pygame.Rect(width - margin - 92, margin, 92, 38)
+        top_cards_top = score_panel.bottom + 18
+
+        horizontal_left = side_cards_width + label_lane + (margin * 2)
+        horizontal_width = width - (horizontal_left * 2)
+        top_player_rect = pygame.Rect(horizontal_left, top_cards_top, horizontal_width, top_cards_height)
+        top_label_rect = pygame.Rect(horizontal_left, top_player_rect.bottom + 8, horizontal_width, 46)
+
+        bottom_player_rect = pygame.Rect(horizontal_left, height - bottom_cards_height - margin, horizontal_width, bottom_cards_height)
+        bottom_label_rect = pygame.Rect(horizontal_left, bottom_player_rect.top - 54, horizontal_width, 46)
 
         table_rect = pygame.Rect(
-            side_band + (margin * 2),
-            top_band + (margin * 2),
-            width - ((side_band + (margin * 2)) * 2),
-            height - top_band - bottom_band - (margin * 4),
+            horizontal_left + 42,
+            top_label_rect.bottom + margin,
+            horizontal_width - 84,
+            bottom_label_rect.top - top_label_rect.bottom - (margin * 2),
         )
-        top_player_rect = pygame.Rect(side_band + margin, margin + 8, width - ((side_band + margin) * 2), top_band - margin)
-        bottom_player_rect = pygame.Rect(side_band + margin, height - bottom_band + 18, width - ((side_band + margin) * 2), bottom_band - 24)
-        left_player_rect = pygame.Rect(margin, top_band + margin, side_band, height - top_band - bottom_band - (margin * 2))
-        right_player_rect = pygame.Rect(width - side_band - margin, top_band + margin, side_band, height - top_band - bottom_band - (margin * 2))
+
+        left_player_rect = pygame.Rect(margin, table_rect.top, side_cards_width, table_rect.height)
+        left_label_rect = pygame.Rect(left_player_rect.right + 8, table_rect.top, table_rect.left - left_player_rect.right - 16, table_rect.height)
+        right_label_rect = pygame.Rect(table_rect.right + 8, table_rect.top, width - margin - side_cards_width - table_rect.right - 16, table_rect.height)
+        right_player_rect = pygame.Rect(width - side_cards_width - margin, table_rect.top, side_cards_width, table_rect.height)
+
+        overlay_rect = pygame.Rect(width // 2 - 340, height // 2 - 180, 680, 360)
 
         return {
             "table_rect": table_rect,
@@ -252,22 +277,26 @@ class MatchScene(Scene):
             "bottom_player_rect": bottom_player_rect,
             "left_player_rect": left_player_rect,
             "right_player_rect": right_player_rect,
-            "score_panel": pygame.Rect(margin, margin, 276, 122),
-            "menu_button": pygame.Rect(width - margin - 92, margin, 92, 38),
-            "overlay_rect": pygame.Rect(width // 2 - 320, height // 2 - 150, 640, 300),
+            "top_label_rect": top_label_rect,
+            "bottom_label_rect": bottom_label_rect,
+            "left_label_rect": left_label_rect,
+            "right_label_rect": right_label_rect,
+            "score_panel": score_panel,
+            "menu_button": menu_button,
+            "overlay_rect": overlay_rect,
         }
 
     def _draw_table(self, renderer, rect: pygame.Rect) -> None:
         table_surface = pygame.Surface(rect.size, pygame.SRCALPHA)
-        pygame.draw.rect(table_surface, (14, 32, 68, 134), table_surface.get_rect(), border_radius=32)
-        pygame.draw.rect(table_surface, (176, 214, 255, 72), table_surface.get_rect(), width=2, border_radius=32)
+        pygame.draw.rect(table_surface, (14, 32, 68, 118), table_surface.get_rect(), border_radius=34)
+        pygame.draw.rect(table_surface, (176, 214, 255, 62), table_surface.get_rect(), width=2, border_radius=34)
         pygame.draw.ellipse(
             table_surface,
-            (199, 233, 255, 22),
-            pygame.Rect(rect.width * 0.18, rect.height * 0.18, rect.width * 0.64, rect.height * 0.64),
+            (201, 232, 255, 18),
+            pygame.Rect(rect.width * 0.2, rect.height * 0.22, rect.width * 0.6, rect.height * 0.56),
         )
         renderer.surface.blit(table_surface, rect.topleft)
-        renderer.draw_text("Tavolo", (rect.centerx, rect.top + 16), size=26, bold=True, align="center")
+        renderer.draw_text("Tavolo", (rect.centerx, rect.top + 14), size=24, bold=True, align="center")
 
     def _draw_table_cards(self, renderer, table_rect: pygame.Rect) -> None:
         if not self.engine.table:
@@ -275,51 +304,53 @@ class MatchScene(Scene):
             return
 
         card_width, card_height = CARD_SIZE_TABLE
-        max_spacing = max(18, min(110, (table_rect.width - card_width) // max(len(self.engine.table), 1)))
-        total_width = card_width + (max_spacing * (len(self.engine.table) - 1))
+        spacing = max(18, min(92, (table_rect.width - card_width) // max(len(self.engine.table), 1)))
+        total_width = card_width + (spacing * (len(self.engine.table) - 1))
         start_x = table_rect.centerx - (total_width // 2)
         y = table_rect.centery - (card_height // 2)
         for index, card in enumerate(self.engine.table):
-            card_rect = pygame.Rect(start_x + (index * max_spacing), y, card_width, card_height)
+            card_rect = pygame.Rect(start_x + (index * spacing), y, card_width, card_height)
             renderer.draw_card(card, card_rect, face_up=True)
 
     def _draw_players(self, renderer, layout) -> None:
         if self.engine.num_players == 2:
-            self._draw_horizontal_ai_hand(renderer, self.engine.players[1], layout["top_player_rect"], top=True)
+            self._draw_horizontal_ai_hand(renderer, self.engine.players[1], layout["top_player_rect"])
+            self._draw_horizontal_label(renderer, self.engine.players[1], layout["top_label_rect"])
         else:
-            self._draw_horizontal_ai_hand(renderer, self.engine.players[2], layout["top_player_rect"], top=True)
+            self._draw_horizontal_ai_hand(renderer, self.engine.players[2], layout["top_player_rect"])
+            self._draw_horizontal_label(renderer, self.engine.players[2], layout["top_label_rect"])
             self._draw_vertical_ai_hand(renderer, self.engine.players[1], layout["left_player_rect"], side="left")
+            self._draw_vertical_label(renderer, self.engine.players[1], layout["left_label_rect"], side="left")
             self._draw_vertical_ai_hand(renderer, self.engine.players[3], layout["right_player_rect"], side="right")
+            self._draw_vertical_label(renderer, self.engine.players[3], layout["right_label_rect"], side="right")
 
-    def _draw_horizontal_ai_hand(self, renderer, player, rect: pygame.Rect, top: bool = False) -> None:
-        self._draw_player_badge(renderer, player, (rect.centerx, rect.top + 10), align="midtop")
+        self._draw_human_hand(renderer, self.engine.get_human_player(), layout["bottom_player_rect"])
+        self._draw_horizontal_label(renderer, self.engine.get_human_player(), layout["bottom_label_rect"])
 
+    def _draw_horizontal_ai_hand(self, renderer, player, rect: pygame.Rect) -> None:
         if not player.hand:
             return
 
         card_width, card_height = CARD_SIZE_SMALL
         show_cards = self.settings["show_all_cards"]
-        spacing = max(18, min(48, (rect.width - card_width) // max(len(player.hand), 1)))
+        spacing = max(18, min(44, (rect.width - card_width) // max(len(player.hand), 1)))
         total_width = card_width + (spacing * (len(player.hand) - 1))
         start_x = rect.centerx - (total_width // 2)
-        y = rect.bottom - card_height - 6
+        y = rect.bottom - card_height - 2
         for index, card in enumerate(player.hand):
             card_rect = pygame.Rect(start_x + (index * spacing), y, card_width, card_height)
             renderer.draw_card(card, card_rect, face_up=show_cards)
 
     def _draw_vertical_ai_hand(self, renderer, player, rect: pygame.Rect, side: str) -> None:
-        badge_pos = (rect.centerx, rect.top + 12)
-        self._draw_player_badge(renderer, player, badge_pos, align="midtop")
-
         if not player.hand:
             return
 
         rotated_width = CARD_SIZE_SMALL[1]
         rotated_height = CARD_SIZE_SMALL[0]
         show_cards = self.settings["show_all_cards"]
-        spacing = max(16, min(34, (rect.height - rotated_height - 54) // max(len(player.hand), 1)))
+        spacing = max(16, min(30, (rect.height - rotated_height) // max(len(player.hand), 1)))
         total_height = rotated_height + (spacing * (len(player.hand) - 1))
-        start_y = rect.centery - (total_height // 2) + 20
+        start_y = rect.centery - (total_height // 2)
         x = rect.centerx - (rotated_width // 2)
         angle = 90 if side == "left" else 270
 
@@ -327,57 +358,113 @@ class MatchScene(Scene):
             card_rect = pygame.Rect(x, start_y + (index * spacing), rotated_width, rotated_height)
             renderer.draw_card(card, card_rect, face_up=show_cards, angle=angle)
 
-    def _draw_human_hand(self, renderer, rect: pygame.Rect) -> None:
-        human = self.engine.get_human_player()
-        self._draw_player_badge(renderer, human, (rect.centerx, rect.top + 8), align="midtop")
-
-        if not human.hand:
+    def _draw_human_hand(self, renderer, player, rect: pygame.Rect) -> None:
+        if not player.hand:
             renderer.draw_text("Mano vuota", rect.center, size=22, color=TEXT_DIM_COLOR, align="center")
             return
 
         card_width, card_height = CARD_SIZE_HAND
-        spacing = max(32, min(88, (rect.width - card_width) // max(len(human.hand), 1)))
-        total_width = card_width + (spacing * (len(human.hand) - 1))
+        spacing = max(34, min(82, (rect.width - card_width) // max(len(player.hand), 1)))
+        total_width = card_width + (spacing * (len(player.hand) - 1))
         start_x = rect.centerx - (total_width // 2)
         y = rect.bottom - card_height - 8
         current_human_turn = self.engine.game_active and self.engine.get_current_player().is_human and not self.menu_open
-        for index, card in enumerate(human.hand):
+        for index, card in enumerate(player.hand):
             lift = 10 if current_human_turn else 0
             card_rect = pygame.Rect(start_x + (index * spacing), y - lift, card_width, card_height)
             renderer.draw_card(card, card_rect, face_up=True)
             if current_human_turn:
                 self.card_hitboxes.append((card_rect, card))
 
-    def _draw_player_badge(self, renderer, player, anchor, align="midtop") -> None:
-        badge = pygame.Rect(0, 0, 184, 54)
-        setattr(badge, align, anchor)
-        is_current = player == self.engine.get_current_player() and self.engine.game_active and not self.menu_open
-        border = HIGHLIGHT_COLOR if is_current else (108, 147, 204)
-        self._draw_glass_panel(renderer, badge, PANEL_ALT_COLOR, border, alpha=188)
-        renderer.draw_text(player.name, (badge.left + 14, badge.top + 8), size=18, bold=True)
-        renderer.draw_text(
-            "Mano {0} | Prese {1} | Scope {2}".format(len(player.hand), len(player.captured), player.sweeps),
-            (badge.left + 14, badge.top + 30),
-            size=13,
-            color=TEXT_DIM_COLOR,
-        )
+    def _draw_horizontal_label(self, renderer, player, rect: pygame.Rect) -> None:
+        team_label, team_color = self._get_player_team_meta(player)
+        current = player == self.engine.get_current_player() and self.engine.game_active and not self.menu_open
+        border = HIGHLIGHT_COLOR if current else team_color
+        self._draw_glass_panel(renderer, rect, PANEL_ALT_COLOR, border, alpha=194)
+        renderer.draw_text(player.name, (rect.centerx, rect.top + 7), size=19, color=team_color, bold=True, align="midtop")
+        renderer.draw_text(team_label, (rect.centerx, rect.top + 28), size=14, color=TEXT_DIM_COLOR, align="midtop")
+
+    def _draw_vertical_label(self, renderer, player, rect: pygame.Rect, side: str) -> None:
+        team_label, team_color = self._get_player_team_meta(player)
+        current = player == self.engine.get_current_player() and self.engine.game_active and not self.menu_open
+
+        base_surface = pygame.Surface((180, 48), pygame.SRCALPHA)
+        fill = (PANEL_ALT_COLOR[0], PANEL_ALT_COLOR[1], PANEL_ALT_COLOR[2], 198)
+        border = HIGHLIGHT_COLOR if current else team_color
+        pygame.draw.rect(base_surface, fill, base_surface.get_rect(), border_radius=16)
+        pygame.draw.rect(base_surface, border, base_surface.get_rect(), width=2, border_radius=16)
+
+        name_font = renderer.assets.get_font(18, bold=True)
+        team_font = renderer.assets.get_font(13, bold=False)
+        name_surface = name_font.render(player.name, True, team_color)
+        team_surface = team_font.render(team_label, True, TEXT_DIM_COLOR)
+        base_surface.blit(name_surface, name_surface.get_rect(center=(90, 16)))
+        base_surface.blit(team_surface, team_surface.get_rect(center=(90, 33)))
+
+        rotated = pygame.transform.rotate(base_surface, 90 if side == "left" else -90)
+        rotated_rect = rotated.get_rect(center=rect.center)
+        renderer.surface.blit(rotated, rotated_rect)
 
     def _draw_live_score_panel(self, renderer, rect: pygame.Rect) -> None:
-        self._draw_glass_panel(renderer, rect, PANEL_COLOR, HIGHLIGHT_COLOR, alpha=190)
-        renderer.draw_text("Punteggi live", (rect.left + 14, rect.top + 10), size=20, bold=True)
-        current_player = self.engine.get_current_player()
-        renderer.draw_text("Turno: {0}".format(current_player.name), (rect.left + 14, rect.top + 34), size=15, color=TEXT_DIM_COLOR)
+        self._draw_glass_panel(renderer, rect, PANEL_COLOR, HIGHLIGHT_COLOR, alpha=198)
+        renderer.draw_text("Live", (rect.left + 14, rect.top + 10), size=18, bold=True)
 
-        live_scores = ScoringEngine.calculate_final_scores(self.engine.players)
-        y = rect.top + 62
-        for score in live_scores[:3]:
-            renderer.draw_text(
-                "{0}: {1} pt".format(score["player"], score["total"]),
-                (rect.left + 14, y),
-                size=16,
-                color=TEXT_COLOR,
+        headers = [("Tot", rect.left + 136), ("Scope", rect.left + 198), ("Carte", rect.left + 264)]
+        for label, x in headers:
+            renderer.draw_text(label, (x, rect.top + 16), size=14, color=TEXT_DIM_COLOR, align="midtop")
+
+        rows = self._get_live_team_rows()
+        y = rect.top + 50
+        for row in rows:
+            renderer.draw_text(row["label"], (rect.left + 16, y), size=16, color=row["color"], bold=True)
+            renderer.draw_text(str(row["total"]), (rect.left + 136, y), size=16, color=TEXT_COLOR)
+            renderer.draw_text(str(row["sweeps"]), (rect.left + 206, y), size=16, color=TEXT_COLOR, align="midtop")
+            renderer.draw_text(str(row["cards"]), (rect.left + 272, y), size=16, color=TEXT_COLOR, align="midtop")
+            y += 28
+
+    def _get_live_team_rows(self):
+        rows = []
+        if self.engine.num_players == 4:
+            final_scores = {
+                score["team"]: score
+                for score in ScoringEngine.calculate_final_scores(self.engine.players)
+            }
+            for team_id in (0, 1):
+                members = [player for player in self.engine.players if player.team == team_id]
+                rows.append(
+                    {
+                        "label": "Sq {0}".format(team_id + 1),
+                        "color": TEAM_COLORS[team_id],
+                        "total": final_scores.get(team_id, {}).get("total", 0),
+                        "sweeps": sum(player.sweeps for player in members),
+                        "cards": sum(len(player.captured) for player in members),
+                    }
+                )
+            return rows
+
+        player_scores = {
+            score["player"]: score
+            for score in ScoringEngine.calculate_final_scores(self.engine.players)
+        }
+        for player in self.engine.players[:2]:
+            team_id = player.id
+            rows.append(
+                {
+                    "label": "Sq {0}".format(team_id + 1),
+                    "color": TEAM_COLORS[team_id],
+                    "total": player_scores.get(player.name, {}).get("total", 0),
+                    "sweeps": player.sweeps,
+                    "cards": len(player.captured),
+                }
             )
-            y += 22
+        return rows
+
+    def _get_player_team_meta(self, player):
+        if self.engine.num_players == 4 and player.team is not None:
+            return "Squadra {0}".format(player.team + 1), TEAM_COLORS[player.team]
+
+        team_id = player.id if player.id in TEAM_COLORS else 0
+        return "Squadra {0}".format(team_id + 1), TEAM_COLORS[team_id]
 
     def _draw_menu_button(self, renderer, rect: pygame.Rect, mouse_pos) -> None:
         hovered = rect.collidepoint(mouse_pos)
@@ -396,8 +483,8 @@ class MatchScene(Scene):
         renderer.surface.blit(dimmer, (0, 0))
 
         self._draw_glass_panel(renderer, rect, PANEL_COLOR, HIGHLIGHT_COLOR, alpha=224)
-        renderer.draw_text("Menu partita", (rect.centerx, rect.top + 26), size=30, bold=True, align="center")
-        renderer.draw_text("La partita e in pausa", (rect.centerx, rect.top + 58), size=16, color=TEXT_DIM_COLOR, align="center")
+        renderer.draw_text("Menu partita", (rect.centerx, rect.top + 24), size=30, bold=True, align="center")
+        renderer.draw_text("La partita e in pausa", (rect.centerx, rect.top + 56), size=16, color=TEXT_DIM_COLOR, align="center")
 
         difficulty_labels = {
             "easy": "Facile",
@@ -408,60 +495,68 @@ class MatchScene(Scene):
         difficulty_text = "Difficolta: {0}".format(difficulty_labels.get(self.settings["difficulty"], self.settings["difficulty"]))
         visibility_text = "Visibilita: {0}".format("Completa" if self.settings["show_all_cards"] else "Nascosta")
 
-        row_gap = 18
-        button_gap = 16
-        top_row_width = rect.width - 96
-        top_button_width = int((top_row_width - button_gap) / 2)
-        top_y = rect.top + 98
+        button_gap = 18
+        row_width = rect.width - 96
+        button_width = int((row_width - button_gap) / 2)
         left_x = rect.left + 48
 
-        second_row_width = rect.width - 96
-        second_button_width = int((second_row_width - (button_gap * 2)) / 3)
-        second_y = top_y + 72 + row_gap
+        row1_y = rect.top + 96
+        row2_y = row1_y + 86
+        row3_y = row2_y + 86
 
-        top_buttons = {
-            "difficulty": pygame.Rect(left_x, top_y, top_button_width, 72),
-            "toggle_cards": pygame.Rect(left_x + top_button_width + button_gap, top_y, top_button_width, 72),
-        }
-        second_buttons = {
-            "resume": pygame.Rect(left_x, second_y, second_button_width, 70),
-            "quit": pygame.Rect(left_x + second_button_width + button_gap, second_y, second_button_width, 70),
-            "new_game": pygame.Rect(left_x + ((second_button_width + button_gap) * 2), second_y, second_button_width, 70),
-        }
         self.menu_buttons = {}
+        row1 = {
+            "difficulty": pygame.Rect(left_x, row1_y, button_width, 68),
+            "toggle_cards": pygame.Rect(left_x + button_width + button_gap, row1_y, button_width, 68),
+        }
+        row2 = {
+            "resume": pygame.Rect(left_x, row2_y, button_width, 68),
+            "log": pygame.Rect(left_x + button_width + button_gap, row2_y, button_width, 68),
+        }
+        row3 = {
+            "quit": pygame.Rect(left_x, row3_y, button_width, 68),
+            "new_game": pygame.Rect(left_x + button_width + button_gap, row3_y, button_width, 68),
+        }
 
         self.menu_buttons["difficulty"] = renderer.draw_button(
             difficulty_text,
-            top_buttons["difficulty"],
-            hovered=top_buttons["difficulty"].collidepoint(mouse_pos),
+            row1["difficulty"],
+            hovered=row1["difficulty"].collidepoint(mouse_pos),
             tone="accent",
             font_size=18,
         )
         self.menu_buttons["toggle_cards"] = renderer.draw_button(
             visibility_text,
-            top_buttons["toggle_cards"],
-            hovered=top_buttons["toggle_cards"].collidepoint(mouse_pos),
+            row1["toggle_cards"],
+            hovered=row1["toggle_cards"].collidepoint(mouse_pos),
             tone="neutral",
             font_size=18,
         )
         self.menu_buttons["resume"] = renderer.draw_button(
             "Continua partita",
-            second_buttons["resume"],
-            hovered=second_buttons["resume"].collidepoint(mouse_pos),
+            row2["resume"],
+            hovered=row2["resume"].collidepoint(mouse_pos),
             tone="success",
+            font_size=18,
+        )
+        self.menu_buttons["log"] = renderer.draw_button(
+            "Log Partita",
+            row2["log"],
+            hovered=row2["log"].collidepoint(mouse_pos),
+            tone="warning",
             font_size=18,
         )
         self.menu_buttons["quit"] = renderer.draw_button(
             "Esci",
-            second_buttons["quit"],
-            hovered=second_buttons["quit"].collidepoint(mouse_pos),
+            row3["quit"],
+            hovered=row3["quit"].collidepoint(mouse_pos),
             tone="danger",
             font_size=18,
         )
         self.menu_buttons["new_game"] = renderer.draw_button(
             "Nuova partita",
-            second_buttons["new_game"],
-            hovered=second_buttons["new_game"].collidepoint(mouse_pos),
+            row3["new_game"],
+            hovered=row3["new_game"].collidepoint(mouse_pos),
             tone="warning",
             font_size=18,
         )
