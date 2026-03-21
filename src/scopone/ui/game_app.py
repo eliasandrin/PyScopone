@@ -22,13 +22,12 @@ class GameApp:
         pygame.init()
         pygame.font.init()
 
-        self.display_flags = pygame.RESIZABLE
-        self.screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT), self.display_flags)
-        pygame.display.set_caption(WINDOW_TITLE)
-
         self.clock = pygame.time.Clock()
         self.running = True
+        self.is_fullscreen = False
+        self.windowed_size = (WINDOW_WIDTH, WINDOW_HEIGHT)
         self.assets = AssetManager()
+        self.screen = self._set_display_mode(self.windowed_size, fullscreen=False)
         self.renderer = Renderer(self.screen, self.assets)
         self.controller = InputController()
         self.scene_manager = SceneManager(self)
@@ -61,15 +60,41 @@ class GameApp:
     def request_quit(self) -> None:
         self.running = False
 
+    def toggle_fullscreen(self) -> None:
+        target_fullscreen = not self.is_fullscreen
+        self.screen = self._set_display_mode(self.windowed_size, fullscreen=target_fullscreen)
+        self.renderer.set_surface(self.screen)
+        self.is_fullscreen = target_fullscreen
+
+    def _set_display_mode(self, size, fullscreen=False):
+        # Rebuilding the display surface forces every scene to recompute its layout
+        # against the new screen size on the next render pass.
+        if fullscreen:
+            info = pygame.display.Info()
+            size = (info.current_w, info.current_h)
+            flags = pygame.FULLSCREEN
+        else:
+            width = max(size[0], MIN_WINDOW_WIDTH)
+            height = max(size[1], MIN_WINDOW_HEIGHT)
+            size = (width, height)
+            self.windowed_size = size
+            flags = pygame.RESIZABLE
+
+        screen = pygame.display.set_mode(size, flags)
+        pygame.display.set_caption(WINDOW_TITLE)
+        return screen
+
     def process_input(self) -> None:
         events = pygame.event.get()
         for event in events:
             if event.type == pygame.QUIT:
                 self.running = False
-            elif event.type == pygame.VIDEORESIZE:
+            elif event.type == pygame.KEYDOWN and event.key == pygame.K_F11:
+                self.toggle_fullscreen()
+            elif event.type == pygame.VIDEORESIZE and not self.is_fullscreen:
                 width = max(event.w, MIN_WINDOW_WIDTH)
                 height = max(event.h, MIN_WINDOW_HEIGHT)
-                self.screen = pygame.display.set_mode((width, height), self.display_flags)
+                self.screen = self._set_display_mode((width, height), fullscreen=False)
                 self.renderer.set_surface(self.screen)
 
         self.controller.process(events, self.scene_manager.current_scene)

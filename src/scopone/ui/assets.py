@@ -1,7 +1,7 @@
 """Asset loading and caching for the Pygame UI."""
 
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 
 import pygame
 
@@ -16,9 +16,11 @@ class AssetManager:
     def __init__(self) -> None:
         self.assets_root = Path(__file__).resolve().parents[3] / "assets"
         self.cards_root = self.assets_root / "cards"
-        self.font_cache = {}  # type: Dict[Tuple[int, bool], pygame.font.Font]
+        self.fonts_root = self.assets_root / "fonts"
+        self.font_cache = {}  # type: Dict[Tuple[str, int, bool], pygame.font.Font]
         self.surface_cache = {}  # type: Dict[Tuple[str, Tuple[int, int]], pygame.Surface]
         self.card_index = self._build_card_index()
+        self.custom_title_font = self._find_custom_title_font()
 
     def _build_card_index(self):
         index = {}  # type: Dict[str, Path]
@@ -31,13 +33,35 @@ class AssetManager:
             index[path.name.lower()] = path
         return index
 
-    def get_font(self, size: int, bold: bool = False) -> pygame.font.Font:
-        cache_key = (size, bold)
+    def get_font(self, size: int, bold: bool = False, role: str = "body") -> pygame.font.Font:
+        cache_key = (role, size, bold)
         if cache_key not in self.font_cache:
-            self.font_cache[cache_key] = pygame.font.SysFont(FONT_NAME, size, bold=bold)
+            self.font_cache[cache_key] = self._load_font(size, bold=bold, role=role)
         return self.font_cache[cache_key]
 
-    def get_card_surface(self, card: Card, size: tuple[int, int], face_up: bool = True) -> pygame.Surface:
+    def _find_custom_title_font(self):
+        if not self.fonts_root.exists():
+            return None
+
+        for extension in ("*.ttf", "*.otf"):
+            matches = sorted(self.fonts_root.glob(extension))
+            if matches:
+                return matches[0]
+        return None
+
+    def _load_font(self, size: int, bold: bool = False, role: str = "body") -> pygame.font.Font:
+        if role == "title":
+            if self.custom_title_font is not None:
+                return pygame.font.Font(str(self.custom_title_font), size)
+
+            for family in ("impact", "haettenschweiler", "arialblack", "verdana"):
+                path = pygame.font.match_font(family, bold=bold)
+                if path:
+                    return pygame.font.Font(path, size)
+
+        return pygame.font.SysFont(FONT_NAME, size, bold=bold)
+
+    def get_card_surface(self, card: Card, size: Tuple[int, int], face_up: bool = True) -> pygame.Surface:
         cache_key = (f"{card}-{face_up}", size)
         if cache_key in self.surface_cache:
             return self.surface_cache[cache_key]
@@ -46,7 +70,7 @@ class AssetManager:
         self.surface_cache[cache_key] = surface
         return surface
 
-    def _load_card_image(self, card: Card, size: tuple[int, int]) -> pygame.Surface:
+    def _load_card_image(self, card: Card, size: Tuple[int, int]) -> pygame.Surface:
         value, suit = card
         for candidate in self._card_candidates(value, suit):
             path = self.card_index.get(candidate.lower())
@@ -68,7 +92,7 @@ class AssetManager:
             f"{value}_{suit_title}.png",
         ]
 
-    def _build_card_fallback(self, card: Card, size: tuple[int, int]) -> pygame.Surface:
+    def _build_card_fallback(self, card: Card, size: Tuple[int, int]) -> pygame.Surface:
         surface = pygame.Surface(size, pygame.SRCALPHA)
         surface.fill(CARD_FACE_COLOR)
         pygame.draw.rect(surface, CARD_BORDER_COLOR, surface.get_rect(), width=2, border_radius=10)
@@ -84,7 +108,7 @@ class AssetManager:
         surface.blit(symbol, symbol_rect)
         return surface
 
-    def _build_card_back(self, size: tuple[int, int]) -> pygame.Surface:
+    def _build_card_back(self, size: Tuple[int, int]) -> pygame.Surface:
         surface = pygame.Surface(size, pygame.SRCALPHA)
         surface.fill(CARD_BACK_COLOR)
         pygame.draw.rect(surface, CARD_BORDER_COLOR, surface.get_rect(), width=2, border_radius=10)
