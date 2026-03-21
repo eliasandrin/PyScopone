@@ -1,4 +1,21 @@
-# Python cache files
+# Virtual environments
+.venv/
+venv/
+
+# Python caches
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Test and coverage output
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE files
+.idea/
+.vscode/
+
+# OS clutter
+Thumbs.db
+.DS_Store
