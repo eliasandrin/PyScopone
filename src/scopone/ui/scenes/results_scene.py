@@ -1,16 +1,26 @@
 import pygame
 
-from scopone.config.ui import BG_COLOR, LOG_BG_COLOR, PANEL_ALT_COLOR, PANEL_COLOR, TEXT_COLOR, TEXT_DIM_COLOR
+from scopone.config.game import DEFAULT_PLAYER_NAMES
+from scopone.config.ui import ACCENT_COLOR, SUCCESS_COLOR, TEXT_COLOR, TEXT_DIM_COLOR, WARNING_COLOR
 from scopone.ui.backgrounds import draw_prismatic_background
 from scopone.ui.scene_manager import Scene
 
 
+TEAM_COLORS = {
+    0: (117, 185, 255),
+    1: (255, 176, 96),
+}
+
+WINNER_COLOR = (246, 216, 112)
+TIE_COLOR = (144, 231, 184)
+
+
 class ResultsScene(Scene):
-    """Shows the final scores and next actions."""
+    """Shows the final scores in a text-driven two-column layout."""
 
     def __init__(self, app, final_scores, settings, log_messages):
         super().__init__(app)
-        self.final_scores = final_scores
+        self.final_scores = list(final_scores)
         self.settings = dict(settings)
         self.log_messages = list(log_messages)
         self.buttons = {}
@@ -39,73 +49,236 @@ class ResultsScene(Scene):
             return
 
     def render(self, renderer) -> None:
-        draw_prismatic_background(renderer.surface, variant="game")
         width, height = renderer.surface.get_size()
         mouse_pos = pygame.mouse.get_pos()
+        layout = self._calculate_layout(width, height)
+        columns = self._build_columns()
 
-        panel = pygame.Rect(32, 32, width - 64, height - 64)
-        summary_rect = pygame.Rect(panel.left + 18, panel.top + 18, panel.width - 36, panel.height - 36)
-        left_rect = pygame.Rect(summary_rect.left, summary_rect.top, summary_rect.width - 340, summary_rect.height)
-        right_rect = pygame.Rect(left_rect.right + 18, summary_rect.top, 322, summary_rect.height)
+        draw_prismatic_background(renderer.surface, variant="game")
 
-        renderer.draw_panel(panel, PANEL_COLOR, border=(133, 176, 235))
-        renderer.draw_text("Risultati finali", (left_rect.left + 12, left_rect.top + 10), size=42, bold=True)
+        # Dim the shared background so the final comparison stays readable
+        # without reintroducing rigid boxed containers.
+        dimmer = pygame.Surface((width, height), pygame.SRCALPHA)
+        dimmer.fill((4, 10, 20, 150))
+        renderer.surface.blit(dimmer, (0, 0))
+
         renderer.draw_text(
-            f"{self.settings['num_players']} giocatori | {self.settings['difficulty']} | "
-            f"{'visibilita completa' if self.settings['show_all_cards'] else 'visibilita standard'}",
-            (left_rect.left + 12, left_rect.top + 58),
-            size=18,
+            "RISULTATI PARTITA",
+            layout["title_center"],
+            size=layout["title_size"],
+            color=TEXT_COLOR,
+            bold=True,
+            align="center",
+            font_role="title",
+        )
+        renderer.draw_text(
+            self._build_subtitle(),
+            layout["subtitle_center"],
+            size=layout["subtitle_size"],
             color=TEXT_DIM_COLOR,
+            align="center",
         )
 
-        card_top = left_rect.top + 100
-        for index, score in enumerate(self.final_scores):
-            card_rect = pygame.Rect(left_rect.left + 8, card_top + index * 136, left_rect.width - 16, 118)
-            renderer.draw_panel(card_rect, PANEL_ALT_COLOR, border=(118, 162, 224))
+        self._draw_column(renderer, columns[0], layout["left_center_x"], layout["columns_top"], layout)
+        self._draw_column(renderer, columns[1], layout["right_center_x"], layout["columns_top"], layout)
+        self._draw_winner(renderer, columns, layout)
+        self._draw_actions(renderer, layout, mouse_pos)
 
-            renderer.draw_text(f"{index + 1}. {score['player']}", (card_rect.left + 18, card_rect.top + 16), size=28, bold=True)
-            renderer.draw_text(f"{score['total']} punti", (card_rect.right - 20, card_rect.top + 18), size=28, bold=True, align="topright")
+    def _build_subtitle(self) -> str:
+        difficulty_labels = {
+            "easy": "Facile",
+            "normal": "Normale",
+            "expert": "Esperto",
+            "adaptive": "Adattivo",
+        }
+        match_type = "Partita a {0} giocatori".format(self.settings["num_players"])
+        difficulty = "Difficolta: {0}".format(
+            difficulty_labels.get(self.settings["difficulty"], self.settings["difficulty"])
+        )
+        visibility = "Carte IA: {0}".format("Visibili" if self.settings["show_all_cards"] else "Nascoste")
+        return "{0} | {1} | {2}".format(match_type, difficulty, visibility)
 
-            details = [
-                f"Carte: {score['captured_cards']}",
-                f"Denari: {score['coins']}",
-                f"Scope: {score['sweeps']}",
-                f"Primiera: {score.get('primiera_value', 0)}",
+    def _build_columns(self):
+        if self.settings["num_players"] == 4 and all("team" in score for score in self.final_scores):
+            score_lookup = {score["team"]: score for score in self.final_scores}
+            return [
+                self._build_team_column(0, score_lookup.get(0, {})),
+                self._build_team_column(1, score_lookup.get(1, {})),
             ]
-            if "members" in score:
-                details.insert(0, "Giocatori: " + ", ".join(score["members"]))
 
-            renderer.draw_multiline(" | ".join(details), card_rect.inflate(-18, -54), size=18, color=TEXT_DIM_COLOR, max_chars=66)
+        expected_names = ["Tu", DEFAULT_PLAYER_NAMES[1]]
+        score_lookup = {score.get("player"): score for score in self.final_scores}
+        ordered_scores = []
+        used_scores = set()
+        for expected_name in expected_names:
+            score = score_lookup.get(expected_name)
+            if score is not None:
+                ordered_scores.append(score)
+                used_scores.add(id(score))
 
-            points = score.get("points", {})
-            breakdown = []
-            for key in ["cards", "coins", "settebello", "primiera", "sweeps"]:
-                value = points.get(key, 0)
-                if value:
-                    breakdown.append(f"{key}: +{value}")
-            renderer.draw_text("  ".join(breakdown) or "Nessun bonus", (card_rect.left + 18, card_rect.bottom - 26), size=17, color=TEXT_COLOR)
+        for score in self.final_scores:
+            if id(score) not in used_scores and len(ordered_scores) < 2:
+                ordered_scores.append(score)
 
-        renderer.draw_panel(right_rect, LOG_BG_COLOR, border=(118, 162, 224))
-        renderer.draw_text("Ultimi eventi", (right_rect.left + 18, right_rect.top + 16), size=28, bold=True)
+        while len(ordered_scores) < 2:
+            ordered_scores.append({})
 
-        y = right_rect.top + 56
-        for message in self.log_messages[-18:]:
-            if y > right_rect.bottom - 170:
-                break
-            row = renderer.draw_text(message, (right_rect.left + 18, y), size=16, color=TEXT_DIM_COLOR)
-            y = row.bottom + 8
+        return [
+            self._build_player_column(0, ordered_scores[0], "Tu"),
+            self._build_player_column(1, ordered_scores[1], DEFAULT_PLAYER_NAMES[1]),
+        ]
 
-        button_y = right_rect.bottom - 150
+    def _build_team_column(self, team_id: int, score: dict):
+        members = score.get("members") or []
+        return {
+            "team_id": team_id,
+            "team_name": "Squadra {0}".format(team_id + 1),
+            "members": ", ".join(members) if members else "Nessun giocatore",
+            "color": TEAM_COLORS[team_id],
+            "stats": [
+                ("Carte", score.get("captured_cards", 0)),
+                ("Denari", score.get("coins", 0)),
+                ("Primiera", score.get("primiera_value", 0)),
+                ("Scope", score.get("sweeps", 0)),
+                ("Punti Totali", score.get("total", 0)),
+            ],
+            "total": score.get("total", 0),
+        }
+
+    def _build_player_column(self, team_id: int, score: dict, fallback_name: str):
+        player_name = score.get("player", fallback_name)
+        return {
+            "team_id": team_id,
+            "team_name": "Squadra {0}".format(team_id + 1),
+            "members": player_name,
+            "color": TEAM_COLORS[team_id],
+            "stats": [
+                ("Carte", score.get("captured_cards", 0)),
+                ("Denari", score.get("coins", 0)),
+                ("Primiera", score.get("primiera_value", 0)),
+                ("Scope", score.get("sweeps", 0)),
+                ("Punti Totali", score.get("total", 0)),
+            ],
+            "total": score.get("total", 0),
+        }
+
+    def _draw_column(self, renderer, column: dict, center_x: int, top_y: int, layout: dict) -> None:
+        renderer.draw_text(
+            column["team_name"],
+            (center_x, top_y),
+            size=layout["team_name_size"],
+            color=column["color"],
+            bold=True,
+            align="midtop",
+        )
+        renderer.draw_text(
+            column["members"],
+            (center_x, top_y + layout["members_offset"]),
+            size=layout["members_size"],
+            color=TEXT_DIM_COLOR,
+            align="midtop",
+        )
+
+        stats_y = top_y + layout["stats_start_offset"]
+        for label, value in column["stats"]:
+            is_total = label == "Punti Totali"
+            renderer.draw_text(
+                "{0}: {1}".format(label, value),
+                (center_x, stats_y),
+                size=layout["total_stat_size"] if is_total else layout["stat_size"],
+                color=TEXT_COLOR if is_total else TEXT_DIM_COLOR,
+                bold=is_total,
+                align="midtop",
+            )
+            stats_y += layout["stat_gap"]
+
+    def _draw_winner(self, renderer, columns, layout: dict) -> None:
+        left_total = columns[0]["total"]
+        right_total = columns[1]["total"]
+        y = layout["winner_y"]
+
+        if left_total == right_total:
+            renderer.draw_text(
+                "PAREGGIO",
+                (layout["screen_center_x"], y),
+                size=layout["winner_size"],
+                color=TIE_COLOR,
+                bold=True,
+                align="center",
+                font_role="title",
+            )
+            return
+
+        winner_x = layout["left_center_x"] if left_total > right_total else layout["right_center_x"]
+        renderer.draw_text(
+            "VINCITORE",
+            (winner_x, y),
+            size=layout["winner_size"],
+            color=WINNER_COLOR,
+            bold=True,
+            align="center",
+            font_role="title",
+        )
+
+    def _draw_actions(self, renderer, layout: dict, mouse_pos) -> None:
         self.buttons = {}
-        for action, label, tone, offset in [
-            ("play_again", "Gioca ancora", "success", 0),
-            ("menu", "Menu principale", "neutral", 58),
-            ("quit", "Esci", "danger", 116),
-        ]:
-            button_rect = pygame.Rect(right_rect.left + 18, button_y + offset, right_rect.width - 36, 46)
+        button_specs = [
+            ("play_again", "Gioca ancora", "success", layout["buttons"][0]),
+            ("menu", "Menu", "neutral", layout["buttons"][1]),
+            ("quit", "Esci", "danger", layout["buttons"][2]),
+        ]
+
+        for action, label, tone, rect in button_specs:
             self.buttons[action] = renderer.draw_button(
                 label,
-                button_rect,
-                hovered=button_rect.collidepoint(mouse_pos),
+                rect,
+                hovered=rect.collidepoint(mouse_pos),
                 tone=tone,
+                font_size=layout["button_font_size"],
             )
+
+    def _calculate_layout(self, width: int, height: int):
+        title_size = self._clamp(int(width * 0.05), 54, 76)
+        subtitle_size = self._clamp(int(width * 0.0135), 16, 21)
+        team_name_size = self._clamp(int(width * 0.025), 30, 40)
+        members_size = self._clamp(int(width * 0.0135), 16, 20)
+        stat_size = self._clamp(int(width * 0.018), 22, 30)
+        total_stat_size = self._clamp(int(width * 0.021), 26, 34)
+        winner_size = self._clamp(int(width * 0.03), 34, 46)
+        button_font_size = self._clamp(int(width * 0.0155), 18, 24)
+
+        button_width = self._clamp(int(width * 0.18), 180, 260)
+        button_height = self._clamp(int(height * 0.075), 52, 68)
+        button_gap = self._clamp(int(width * 0.02), 18, 30)
+        total_buttons_width = (button_width * 3) + (button_gap * 2)
+        buttons_left = (width - total_buttons_width) // 2
+        buttons_y = height - 100 - (button_height // 2)
+
+        return {
+            "screen_center_x": width // 2,
+            "left_center_x": width // 4,
+            "right_center_x": (width * 3) // 4,
+            "title_center": (width // 2, 56),
+            "subtitle_center": (width // 2, 120),
+            "title_size": title_size,
+            "subtitle_size": subtitle_size,
+            "columns_top": self._clamp(int(height * 0.22), 178, 232),
+            "members_offset": self._clamp(int(height * 0.05), 34, 44),
+            "stats_start_offset": self._clamp(int(height * 0.12), 92, 112),
+            "stat_gap": self._clamp(int(height * 0.062), 42, 54),
+            "winner_y": height - 180,
+            "team_name_size": team_name_size,
+            "members_size": members_size,
+            "stat_size": stat_size,
+            "total_stat_size": total_stat_size,
+            "winner_size": winner_size,
+            "button_font_size": button_font_size,
+            "buttons": [
+                pygame.Rect(buttons_left, buttons_y, button_width, button_height),
+                pygame.Rect(buttons_left + button_width + button_gap, buttons_y, button_width, button_height),
+                pygame.Rect(buttons_left + (button_width + button_gap) * 2, buttons_y, button_width, button_height),
+            ],
+        }
+
+    def _clamp(self, value: int, minimum: int, maximum: int) -> int:
+        return max(minimum, min(maximum, value))
