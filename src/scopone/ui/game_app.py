@@ -33,6 +33,7 @@ class GameApp:
         self.clock = pygame.time.Clock()
         self.running = True
         self.is_fullscreen = False
+        self.is_muted = False
         self.windowed_size = (WINDOW_WIDTH, WINDOW_HEIGHT)
         self.assets = AssetManager()
         self.audio = AudioManager()
@@ -68,6 +69,10 @@ class GameApp:
 
     def request_quit(self) -> None:
         self.running = False
+
+    def toggle_mute(self) -> None:
+        self.is_muted = not self.is_muted
+        self.audio.set_muted(self.is_muted)
 
     def toggle_fullscreen(self) -> None:
         target_fullscreen = not self.is_fullscreen

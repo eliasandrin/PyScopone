@@ -32,7 +32,8 @@ BLOCK_Y_OFFSET = -50
 DEAL_CARD_DELAY = 0.075
 DEAL_CARD_DURATION = 0.28
 PLAY_CARD_DURATION = 0.24
-CAPTURE_CARD_DURATION = 0.30
+CAPTURE_HOLD_DELAY = 0.65
+CAPTURE_CARD_DURATION = 0.90
 
 
 class MatchScene(Scene):
@@ -50,6 +51,7 @@ class MatchScene(Scene):
 
         self.menu_open = False
         self.menu_button_rect = pygame.Rect(0, 0, 0, 0)
+        self.audio_button_rect = pygame.Rect(0, 0, 0, 0)
         self.menu_buttons = {}
 
         self.log_visible = False
@@ -130,6 +132,10 @@ class MatchScene(Scene):
                 event.pos[0] - self.log_rect.x,
                 event.pos[1] - self.log_rect.y,
             )
+            return
+
+        if self.audio_button_rect.collidepoint(event.pos):
+            self.app.toggle_mute()
             return
 
         if self.menu_button_rect.collidepoint(event.pos):
@@ -220,6 +226,7 @@ class MatchScene(Scene):
         current_player = self.engine.get_current_player()
         source_rect = self._get_hand_card_rect(current_player.id, card)
         captured_cards = self._preview_captured_cards(card)
+        captured_rects = self._get_table_source_rects(captured_cards)
         if not self.engine.play_card(current_player.id, card):
             self._append_log("Mossa non valida.")
             return
@@ -227,7 +234,7 @@ class MatchScene(Scene):
         self._append_log("Tu giochi {0}".format(self._format_card(card)))
         self.pending_ai_player_id = None
         self.ai_timer = 0.0
-        self._queue_move_sequence(current_player, card, source_rect, captured_cards, self.engine.last_move_result)
+        self._queue_move_sequence(current_player, card, source_rect, captured_cards, captured_rects, self.engine.last_move_result)
 
     def _play_ai_turn(self) -> None:
         assert self.engine is not None
@@ -243,14 +250,15 @@ class MatchScene(Scene):
 
         source_rect = self._get_hand_card_rect(current_player.id, selected_card)
         captured_cards = self._preview_captured_cards(selected_card)
+        captured_rects = self._get_table_source_rects(captured_cards)
         self.engine.play_card(current_player.id, selected_card)
         self._append_log("{0} gioca {1}".format(current_player.name, self._format_card(selected_card)))
         self._append_log("AI: {0}".format(strategy.get_last_decision_reason()))
         self.pending_ai_player_id = None
         self.ai_timer = 0.0
-        self._queue_move_sequence(current_player, selected_card, source_rect, captured_cards, self.engine.last_move_result)
+        self._queue_move_sequence(current_player, selected_card, source_rect, captured_cards, captured_rects, self.engine.last_move_result)
 
-    def _queue_move_sequence(self, player, card, source_rect, captured_cards, move_result) -> None:
+    def _queue_move_sequence(self, player, card, source_rect, captured_cards, captured_rects, move_result) -> None:
         if source_rect is None or self.last_layout is None or move_result is None:
             self._after_move_animations(move_result)
             return
@@ -268,7 +276,7 @@ class MatchScene(Scene):
                     start_angle=start_angle,
                     target_angle=0,
                     on_start=lambda: self.app.audio.play("play"),
-                    on_complete=lambda: self._queue_capture_sequence(player.id, card, captured_cards, move_result),
+                    on_complete=lambda: self._queue_capture_sequence(player.id, card, captured_cards, captured_rects, target_rect, move_result),
                     layer=3,
                 )
             )
@@ -296,7 +304,7 @@ class MatchScene(Scene):
         self.hidden_table_cards.discard(card)
         self._after_move_animations(move_result)
 
-    def _queue_capture_sequence(self, player_id: int, played_card, captured_cards, move_result) -> None:
+    def _queue_capture_sequence(self, player_id: int, played_card, captured_cards, captured_rects, played_rect, move_result) -> None:
         if self.last_layout is None:
             self._after_move_animations(move_result)
             return
@@ -315,7 +323,10 @@ class MatchScene(Scene):
                 self._after_move_animations(move_result)
 
         for index, current_card in enumerate(cards_to_collect):
-            start_rect = self._get_table_stack_rect(self.last_layout["table_rect"], index, len(cards_to_collect))
+            if index == 0:
+                start_rect = played_rect
+            else:
+                start_rect = captured_rects.get(current_card, self._get_table_stack_rect(self.last_layout["table_rect"], index, len(cards_to_collect)))
             target_rect = capture_target.move(index * 2, index * 2)
             self.animations.add(
                 CardTween(
@@ -326,9 +337,11 @@ class MatchScene(Scene):
                     face_up=True,
                     start_angle=0,
                     target_angle=0,
+                    delay=CAPTURE_HOLD_DELAY,
                     on_start=(lambda: self.app.audio.play("capture")) if index == 0 else None,
                     on_complete=handle_complete,
                     layer=4,
+                    easing="ease_out",
                 )
             )
 
@@ -366,6 +379,10 @@ class MatchScene(Scene):
             return list(capture_options[0])
         return []
 
+    def _get_table_source_rects(self, cards):
+        table_rects = self.card_position_map.get("table", {})
+        return dict((card, table_rects.get(card)) for card in cards if table_rects.get(card) is not None)
+
     def _format_card(self, card) -> str:
         return "{0}{1}".format(card[0], SIMBOLI[card[1]])
 
@@ -391,12 +408,18 @@ class MatchScene(Scene):
         self.card_hitboxes = []
         self.card_position_map = {"hands": {}, "table": {}}
         self.menu_button_rect = layout["menu_button"]
+        self.audio_button_rect = layout["audio_button"]
 
         self._draw_table(renderer, layout["table_rect"])
         self._draw_deck_anchor(renderer, layout["deck_rect"])
         self._draw_table_cards(renderer, layout["table_rect"])
         self._draw_live_score_panel(renderer, layout["score_panel"])
         self._draw_menu_button(renderer, layout["menu_button"], mouse_pos)
+        renderer.draw_audio_toggle(
+            layout["audio_button"],
+            muted=self.app.is_muted,
+            hovered=layout["audio_button"].collidepoint(mouse_pos),
+        )
         self._draw_players(renderer, layout)
         self.animations.render(renderer)
 
@@ -496,6 +519,7 @@ class MatchScene(Scene):
 
         score_panel = pygame.Rect(margin, margin, 322, 132)
         menu_button = pygame.Rect(width - margin - 92, margin, 92, 38)
+        audio_button = pygame.Rect(menu_button.left - 44, margin + 1, 36, 36)
         top_cards_top = score_panel.bottom + 18
 
         horizontal_left = side_cards_width + label_lane + (margin * 2)
@@ -559,6 +583,7 @@ class MatchScene(Scene):
             "right_label_rect": right_label_rect,
             "score_panel": score_panel,
             "menu_button": menu_button,
+            "audio_button": audio_button,
             "overlay_rect": overlay_rect,
         }
 

@@ -24,6 +24,7 @@ class ResultsScene(Scene):
         self.settings = dict(settings)
         self.log_messages = list(log_messages)
         self.buttons = {}
+        self.audio_button_rect = pygame.Rect(0, 0, 0, 0)
 
     def handle_event(self, event) -> None:
         if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
@@ -31,6 +32,10 @@ class ResultsScene(Scene):
             return
 
         if event.type != pygame.MOUSEBUTTONDOWN or event.button != 1:
+            return
+
+        if self.audio_button_rect.collidepoint(event.pos):
+            self.app.toggle_mute()
             return
 
         for action, rect in self.buttons.items():
@@ -52,6 +57,7 @@ class ResultsScene(Scene):
         width, height = renderer.surface.get_size()
         mouse_pos = pygame.mouse.get_pos()
         layout = self._calculate_layout(width, height)
+        self.audio_button_rect = layout["audio_button"]
         columns = self._build_columns()
 
         draw_prismatic_background(renderer.surface, variant="game")
@@ -83,6 +89,11 @@ class ResultsScene(Scene):
         right_metrics = self._draw_column(renderer, columns[1], layout["right_center_x"], layout["columns_top"], layout)
         self._draw_winner(renderer, columns, left_metrics, right_metrics, layout)
         self._draw_actions(renderer, layout, mouse_pos)
+        renderer.draw_audio_toggle(
+            layout["audio_button"],
+            muted=self.app.is_muted,
+            hovered=layout["audio_button"].collidepoint(mouse_pos),
+        )
 
     def _build_subtitle(self) -> str:
         difficulty_labels = {
@@ -289,6 +300,7 @@ class ResultsScene(Scene):
             "total_stat_size": total_stat_size,
             "winner_size": winner_size,
             "button_font_size": button_font_size,
+            "audio_button": pygame.Rect(width - 54, height - 54, 36, 36),
             "buttons": [
                 pygame.Rect(buttons_left, buttons_y, button_width, button_height),
                 pygame.Rect(buttons_left + button_width + button_gap, buttons_y, button_width, button_height),

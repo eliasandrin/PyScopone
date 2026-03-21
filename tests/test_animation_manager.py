@@ -60,6 +60,24 @@ class AnimationManagerTests(unittest.TestCase):
         manager.update(0.2)
         self.assertFalse(manager.has_active())
 
+    def test_delayed_ease_out_tween_stays_visible_before_motion(self):
+        tween = CardTween(
+            card=(7, "Denari"),
+            start_rect=pygame.Rect(20, 30, 10, 10),
+            target_rect=pygame.Rect(120, 30, 10, 10),
+            duration=1.0,
+            delay=0.5,
+            easing="ease_out",
+        )
+
+        tween.update(0.25)
+        self.assertEqual(tween.get_rect().x, 20)
+
+        tween.update(0.50)
+        eased_rect = tween.get_rect()
+        self.assertGreater(eased_rect.x, 45)
+        self.assertLess(eased_rect.x, 120)
+
 
 if __name__ == "__main__":
     unittest.main()

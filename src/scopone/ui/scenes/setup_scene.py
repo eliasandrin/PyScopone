@@ -21,9 +21,14 @@ class SetupScene(Scene):
         self.player_index = 1
         self.show_all_cards = True
         self.buttons = {}
+        self.audio_button_rect = pygame.Rect(0, 0, 0, 0)
 
     def handle_event(self, event) -> None:
         if event.type != pygame.MOUSEBUTTONDOWN or event.button != 1:
+            return
+
+        if self.audio_button_rect.collidepoint(event.pos):
+            self.app.toggle_mute()
             return
 
         for action, rect in self.buttons.items():
@@ -47,6 +52,7 @@ class SetupScene(Scene):
         width, height = renderer.surface.get_size()
         layout = self._calculate_layout(width, height)
         mouse_pos = pygame.mouse.get_pos()
+        self.audio_button_rect = layout["audio_button"]
 
         draw_prismatic_background(renderer.surface, variant="menu")
 
@@ -117,6 +123,11 @@ class SetupScene(Scene):
             color=TEXT_DIM_COLOR,
             align="center",
         )
+        renderer.draw_audio_toggle(
+            layout["audio_button"],
+            muted=self.app.is_muted,
+            hovered=layout["audio_button"].collidepoint(mouse_pos),
+        )
 
     def _calculate_layout(self, width: int, height: int):
         # The menu uses percentages of the current display size instead of fixed
@@ -184,6 +195,12 @@ class SetupScene(Scene):
                 action_y,
                 action_button_width,
                 action_height,
+            ),
+            "audio_button": pygame.Rect(
+                width - 54,
+                height - 54,
+                36,
+                36,
             ),
             "footer_hint": (width // 2, height - self._clamp(int(height * 0.05), 26, 40)),
         }

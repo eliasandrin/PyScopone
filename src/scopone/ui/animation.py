@@ -11,6 +11,14 @@ def _lerp(start: float, end: float, progress: float) -> float:
     return start + ((end - start) * progress)
 
 
+def _apply_easing(progress: float, easing: str) -> float:
+    progress = min(max(progress, 0.0), 1.0)
+    if easing == "ease_out":
+        inverse = 1.0 - progress
+        return 1.0 - (inverse * inverse * inverse)
+    return progress
+
+
 class CardTween:
     """Interpolates a card rect and angle over time without blocking the game loop."""
 
@@ -27,6 +35,7 @@ class CardTween:
         on_start: Optional[Callable[[], None]] = None,
         on_complete: Optional[Callable[[], None]] = None,
         layer: int = 0,
+        easing: str = "linear",
     ) -> None:
         self.card = card
         self.start_rect = pygame.Rect(start_rect)
@@ -39,6 +48,7 @@ class CardTween:
         self.on_start = on_start
         self.on_complete = on_complete
         self.layer = layer
+        self.easing = easing
 
         self.elapsed = 0.0
         self.started = False
@@ -70,6 +80,7 @@ class CardTween:
             return self.start_rect.copy()
 
         progress = min(max((self.elapsed - self.delay) / self.duration, 0.0), 1.0)
+        progress = _apply_easing(progress, self.easing)
         return pygame.Rect(
             round(_lerp(self.start_rect.x, self.target_rect.x, progress)),
             round(_lerp(self.start_rect.y, self.target_rect.y, progress)),
@@ -82,6 +93,7 @@ class CardTween:
             return int(round(self.start_angle))
 
         progress = min(max((self.elapsed - self.delay) / self.duration, 0.0), 1.0)
+        progress = _apply_easing(progress, self.easing)
         return int(round(_lerp(self.start_angle, self.target_angle, progress)))
 
 

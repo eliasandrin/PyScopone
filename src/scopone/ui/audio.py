@@ -16,22 +16,24 @@ class AudioManager:
         self.available = pygame.mixer.get_init() is not None
         self.audio_root = Path(__file__).resolve().parents[3] / "assets" / "audio"
         self.sounds = {}
+        self.default_volumes = {}
+        self.is_muted = False
 
         if not self.available:
             return
 
-        self.sounds["deal"] = self._load_sound(
+        self._register_sound("deal", self._load_sound(
             ["deal.wav", "shuffle.wav", "smazzata.wav"],
             self._build_deal_sound,
-        )
-        self.sounds["play"] = self._load_sound(
+        ))
+        self._register_sound("play", self._load_sound(
             ["play.wav", "card_play.wav", "giocata.wav"],
             self._build_play_sound,
-        )
-        self.sounds["capture"] = self._load_sound(
+        ))
+        self._register_sound("capture", self._load_sound(
             ["capture.wav", "pickup.wav", "presa.wav"],
             self._build_capture_sound,
-        )
+        ))
 
     def play(self, event_name: str) -> None:
         if not self.available:
@@ -43,6 +45,29 @@ class AudioManager:
 
         try:
             sound.play()
+        except pygame.error:
+            return
+
+    def set_muted(self, muted: bool) -> None:
+        self.is_muted = bool(muted)
+        if not self.available:
+            return
+
+        for name, sound in self.sounds.items():
+            if sound is None:
+                continue
+            try:
+                sound.set_volume(0.0 if self.is_muted else self.default_volumes.get(name, 0.4))
+            except pygame.error:
+                continue
+
+    def _register_sound(self, name: str, sound) -> None:
+        self.sounds[name] = sound
+        if sound is None:
+            return
+        try:
+            self.default_volumes[name] = sound.get_volume()
+            sound.set_volume(0.0 if self.is_muted else self.default_volumes[name])
         except pygame.error:
             return
 
