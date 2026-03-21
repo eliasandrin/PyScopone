@@ -36,6 +36,9 @@ class CardTween:
         on_complete: Optional[Callable[[], None]] = None,
         layer: int = 0,
         easing: str = "linear",
+        shadow: bool = False,
+        shadow_alpha: int = 90,
+        shadow_offset=(0, 6),
     ) -> None:
         self.card = card
         self.start_rect = pygame.Rect(start_rect)
@@ -49,6 +52,9 @@ class CardTween:
         self.on_complete = on_complete
         self.layer = layer
         self.easing = easing
+        self.shadow = shadow
+        self.shadow_alpha = shadow_alpha
+        self.shadow_offset = shadow_offset
 
         self.elapsed = 0.0
         self.started = False
@@ -141,6 +147,12 @@ class AnimationManager:
 
     def render(self, renderer) -> None:
         for animation in sorted(self.animations, key=lambda item: item.layer):
+            if animation.shadow:
+                renderer.draw_card_shadow(
+                    animation.get_rect(),
+                    alpha=animation.shadow_alpha,
+                    offset=animation.shadow_offset,
+                )
             renderer.draw_card(
                 animation.card,
                 animation.get_rect(),

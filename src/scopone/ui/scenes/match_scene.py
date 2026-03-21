@@ -34,6 +34,7 @@ DEAL_CARD_DURATION = 0.28
 PLAY_CARD_DURATION = 0.24
 CAPTURE_HOLD_DELAY = 0.65
 CAPTURE_CARD_DURATION = 0.90
+CAPTURE_ACTIVE_RAISE = 20
 
 
 class MatchScene(Scene):
@@ -265,7 +266,7 @@ class MatchScene(Scene):
 
         start_angle = self._get_player_angle(player.id)
         if captured_cards:
-            target_rect = self._get_table_stack_rect(self.last_layout["table_rect"], 0, len(captured_cards) + 1)
+            target_rect = self._get_table_stack_rect(self.last_layout["table_rect"], 0, len(captured_cards) + 1).move(0, -CAPTURE_ACTIVE_RAISE)
             self.animations.add(
                 CardTween(
                     card=card,
@@ -340,8 +341,10 @@ class MatchScene(Scene):
                     delay=CAPTURE_HOLD_DELAY,
                     on_start=(lambda: self.app.audio.play("capture")) if index == 0 else None,
                     on_complete=handle_complete,
-                    layer=4,
+                    layer=5 if index == 0 else 4,
                     easing="ease_out",
+                    shadow=index == 0,
+                    shadow_alpha=96 if index == 0 else 0,
                 )
             )
 

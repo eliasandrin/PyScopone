@@ -27,6 +27,7 @@ class Renderer:
     def __init__(self, surface: pygame.Surface, assets) -> None:
         self.surface = surface
         self.assets = assets
+        self._audio_icon_cache = {}
 
     def set_surface(self, surface: pygame.Surface) -> None:
         self.surface = surface
@@ -130,6 +131,16 @@ class Renderer:
             pygame.draw.rect(self.surface, CARD_BORDER_COLOR, rect, width=1, border_radius=12)
         return rect
 
+    def draw_card_shadow(self, rect, alpha: int = 90, offset=(0, 6)) -> None:
+        rect = pygame.Rect(rect)
+        shadow_rect = rect.move(offset).inflate(-10, -12)
+        if shadow_rect.width <= 0 or shadow_rect.height <= 0:
+            return
+
+        shadow_surface = pygame.Surface((shadow_rect.width, shadow_rect.height), pygame.SRCALPHA)
+        pygame.draw.ellipse(shadow_surface, (4, 9, 18, alpha), shadow_surface.get_rect())
+        self.surface.blit(shadow_surface, shadow_rect.topleft)
+
     def draw_audio_toggle(self, rect, muted: bool = False, hovered: bool = False) -> pygame.Rect:
         rect = pygame.Rect(rect)
         background = (34, 51, 80) if hovered else (22, 35, 58)
@@ -138,27 +149,47 @@ class Renderer:
             border = (212, 112, 112) if hovered else (178, 92, 92)
 
         self.draw_panel(rect, background, border=border, border_width=2, radius=10)
-
-        speaker = [
-            (rect.left + 10, rect.centery - 4),
-            (rect.left + 15, rect.centery - 4),
-            (rect.left + 20, rect.centery - 10),
-            (rect.left + 20, rect.centery + 10),
-            (rect.left + 15, rect.centery + 4),
-            (rect.left + 10, rect.centery + 4),
-        ]
-        pygame.draw.polygon(self.surface, TEXT_COLOR, speaker)
-        pygame.draw.line(self.surface, TEXT_COLOR, (rect.left + 22, rect.centery - 7), (rect.left + 26, rect.centery - 3), 2)
-        pygame.draw.line(self.surface, TEXT_COLOR, (rect.left + 22, rect.centery + 7), (rect.left + 26, rect.centery + 3), 2)
-
-        if muted:
-            pygame.draw.line(self.surface, (224, 88, 88), (rect.left + 24, rect.top + 9), (rect.right - 8, rect.bottom - 9), 3)
-            pygame.draw.line(self.surface, (224, 88, 88), (rect.left + 24, rect.bottom - 9), (rect.right - 8, rect.top + 9), 3)
-        else:
-            pygame.draw.arc(self.surface, TEXT_COLOR, pygame.Rect(rect.left + 18, rect.top + 7, 12, 20), -0.9, 0.9, 2)
-            pygame.draw.arc(self.surface, TEXT_COLOR, pygame.Rect(rect.left + 20, rect.top + 4, 16, 26), -0.9, 0.9, 2)
+        content_box = rect.inflate(-12, -12)
+        icon_size = max(12, min(content_box.width, content_box.height))
+        icon_surface = self._get_audio_icon_surface(icon_size, muted)
+        icon_rect = icon_surface.get_rect(center=content_box.center)
+        self.surface.blit(icon_surface, icon_rect)
 
         return rect
+
+    def _get_audio_icon_surface(self, size: int, muted: bool) -> pygame.Surface:
+        cache_key = (size, muted)
+        cached = self._audio_icon_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        hi_res_size = 96
+        hi_res = pygame.Surface((hi_res_size, hi_res_size), pygame.SRCALPHA)
+        icon_color = (243, 248, 255)
+        mute_color = (226, 90, 90)
+
+        speaker = [
+            (18, 38),
+            (30, 38),
+            (48, 24),
+            (48, 72),
+            (30, 58),
+            (18, 58),
+        ]
+        pygame.draw.polygon(hi_res, icon_color, speaker)
+        pygame.draw.line(hi_res, icon_color, (46, 36), (56, 28), 5)
+        pygame.draw.line(hi_res, icon_color, (46, 60), (56, 68), 5)
+
+        if muted:
+            pygame.draw.line(hi_res, mute_color, (56, 28), (80, 68), 8)
+            pygame.draw.line(hi_res, mute_color, (56, 68), (80, 28), 8)
+        else:
+            pygame.draw.arc(hi_res, icon_color, pygame.Rect(42, 24, 24, 48), -0.9, 0.9, 6)
+            pygame.draw.arc(hi_res, icon_color, pygame.Rect(44, 14, 34, 68), -0.9, 0.9, 6)
+
+        scaled = pygame.transform.smoothscale(hi_res, (size, size))
+        self._audio_icon_cache[cache_key] = scaled
+        return scaled
 
     def _wrap_text_to_width(self, text: str, font: pygame.font.Font, max_width: int, fallback_chars: int = 48):
         lines = []
