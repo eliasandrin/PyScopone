@@ -79,9 +79,9 @@ class ResultsScene(Scene):
             align="center",
         )
 
-        self._draw_column(renderer, columns[0], layout["left_center_x"], layout["columns_top"], layout)
-        self._draw_column(renderer, columns[1], layout["right_center_x"], layout["columns_top"], layout)
-        self._draw_winner(renderer, columns, layout)
+        left_metrics = self._draw_column(renderer, columns[0], layout["left_center_x"], layout["columns_top"], layout)
+        right_metrics = self._draw_column(renderer, columns[1], layout["right_center_x"], layout["columns_top"], layout)
+        self._draw_winner(renderer, columns, left_metrics, right_metrics, layout)
         self._draw_actions(renderer, layout, mouse_pos)
 
     def _build_subtitle(self) -> str:
@@ -138,6 +138,7 @@ class ResultsScene(Scene):
             "stats": [
                 ("Carte", score.get("captured_cards", 0)),
                 ("Denari", score.get("coins", 0)),
+                ("Settebello", "Si" if score.get("has_settebello") else "No"),
                 ("Primiera", score.get("primiera_value", 0)),
                 ("Scope", score.get("sweeps", 0)),
                 ("Punti Totali", score.get("total", 0)),
@@ -155,6 +156,7 @@ class ResultsScene(Scene):
             "stats": [
                 ("Carte", score.get("captured_cards", 0)),
                 ("Denari", score.get("coins", 0)),
+                ("Settebello", "Si" if score.get("has_settebello") else "No"),
                 ("Primiera", score.get("primiera_value", 0)),
                 ("Scope", score.get("sweeps", 0)),
                 ("Punti Totali", score.get("total", 0)),
@@ -180,9 +182,10 @@ class ResultsScene(Scene):
         )
 
         stats_y = top_y + layout["stats_start_offset"]
+        total_rect = None
         for label, value in column["stats"]:
             is_total = label == "Punti Totali"
-            renderer.draw_text(
+            row_rect = renderer.draw_text(
                 "{0}: {1}".format(label, value),
                 (center_x, stats_y),
                 size=layout["total_stat_size"] if is_total else layout["stat_size"],
@@ -190,17 +193,28 @@ class ResultsScene(Scene):
                 bold=is_total,
                 align="midtop",
             )
+            if is_total:
+                total_rect = row_rect
             stats_y += layout["stat_gap"]
 
-    def _draw_winner(self, renderer, columns, layout: dict) -> None:
+        return {
+            "total_rect": total_rect,
+        }
+
+    def _draw_winner(self, renderer, columns, left_metrics: dict, right_metrics: dict, layout: dict) -> None:
         left_total = columns[0]["total"]
         right_total = columns[1]["total"]
-        y = layout["winner_y"]
+        left_total_rect = left_metrics.get("total_rect")
+        right_total_rect = right_metrics.get("total_rect")
+        fallback_y = layout["columns_top"] + layout["stats_start_offset"] + ((len(columns[0]["stats"]) + 1) * layout["stat_gap"])
 
         if left_total == right_total:
             renderer.draw_text(
                 "PAREGGIO",
-                (layout["screen_center_x"], y),
+                (layout["screen_center_x"], max(
+                    left_total_rect.bottom if left_total_rect is not None else fallback_y,
+                    right_total_rect.bottom if right_total_rect is not None else fallback_y,
+                ) + layout["winner_offset"]),
                 size=layout["winner_size"],
                 color=TIE_COLOR,
                 bold=True,
@@ -210,9 +224,11 @@ class ResultsScene(Scene):
             return
 
         winner_x = layout["left_center_x"] if left_total > right_total else layout["right_center_x"]
+        winner_total_rect = left_total_rect if left_total > right_total else right_total_rect
+        winner_y = (winner_total_rect.bottom if winner_total_rect is not None else fallback_y) + layout["winner_offset"]
         renderer.draw_text(
             "VINCITORE",
-            (winner_x, y),
+            (winner_x, winner_y),
             size=layout["winner_size"],
             color=WINNER_COLOR,
             bold=True,
@@ -266,7 +282,7 @@ class ResultsScene(Scene):
             "members_offset": self._clamp(int(height * 0.05), 34, 44),
             "stats_start_offset": self._clamp(int(height * 0.12), 92, 112),
             "stat_gap": self._clamp(int(height * 0.062), 42, 54),
-            "winner_y": height - 180,
+            "winner_offset": self._clamp(int(height * 0.03), 22, 32),
             "team_name_size": team_name_size,
             "members_size": members_size,
             "stat_size": stat_size,

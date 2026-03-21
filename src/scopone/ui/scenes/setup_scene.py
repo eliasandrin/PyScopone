@@ -23,10 +23,6 @@ class SetupScene(Scene):
         self.buttons = {}
 
     def handle_event(self, event) -> None:
-        if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-            self.app.request_quit()
-            return
-
         if event.type != pygame.MOUSEBUTTONDOWN or event.button != 1:
             return
 

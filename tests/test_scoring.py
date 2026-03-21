@@ -65,6 +65,48 @@ class ScoringTests(unittest.TestCase):
         self.assertEqual(scores[0]["points"]["settebello"], 1)
         self.assertEqual(scores[0]["points"]["sweeps"], 3)
 
+    def test_team_scoring_tie_gives_no_points_for_cards_coins_or_primiera(self):
+        players = [
+            Player("P1", 0, team=0),
+            Player("P2", 1, team=1),
+            Player("P3", 2, team=0),
+            Player("P4", 3, team=1),
+        ]
+
+        team_zero_cards = [
+            (1, "Denari"), (2, "Denari"), (3, "Denari"), (4, "Denari"), (5, "Denari"),
+            (1, "Coppe"), (2, "Coppe"), (3, "Coppe"), (4, "Coppe"), (5, "Coppe"),
+            (1, "Bastoni"), (2, "Bastoni"), (3, "Bastoni"), (4, "Bastoni"), (7, "Bastoni"),
+            (1, "Spade"), (2, "Spade"), (5, "Spade"), (6, "Spade"), (7, "Spade"),
+        ]
+        team_one_cards = [
+            (6, "Denari"), (7, "Denari"), (8, "Denari"), (9, "Denari"), (10, "Denari"),
+            (6, "Coppe"), (7, "Coppe"), (8, "Coppe"), (9, "Coppe"), (10, "Coppe"),
+            (5, "Bastoni"), (6, "Bastoni"), (8, "Bastoni"), (9, "Bastoni"), (10, "Bastoni"),
+            (3, "Spade"), (4, "Spade"), (8, "Spade"), (9, "Spade"), (10, "Spade"),
+        ]
+
+        players[0].captured = team_zero_cards[:10]
+        players[2].captured = team_zero_cards[10:]
+        players[1].captured = team_one_cards[:10]
+        players[3].captured = team_one_cards[10:]
+
+        scores = sorted(ScoringEngine.calculate_final_scores(players), key=lambda score: score["team"])
+
+        self.assertEqual(scores[0]["captured_cards"], 20)
+        self.assertEqual(scores[1]["captured_cards"], 20)
+        self.assertEqual(scores[0]["coins"], 5)
+        self.assertEqual(scores[1]["coins"], 5)
+        self.assertEqual(scores[0]["primiera_value"], scores[1]["primiera_value"])
+        self.assertEqual(scores[0]["points"]["cards"], 0)
+        self.assertEqual(scores[1]["points"]["cards"], 0)
+        self.assertEqual(scores[0]["points"]["coins"], 0)
+        self.assertEqual(scores[1]["points"]["coins"], 0)
+        self.assertEqual(scores[0]["points"]["primiera"], 0)
+        self.assertEqual(scores[1]["points"]["primiera"], 0)
+        self.assertEqual(scores[1]["points"]["settebello"], 1)
+        self.assertTrue(scores[1]["has_settebello"])
+
 
 if __name__ == "__main__":
     unittest.main()

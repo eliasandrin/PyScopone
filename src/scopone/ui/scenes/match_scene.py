@@ -944,7 +944,7 @@ class MatchScene(Scene):
 
         rotated_width = card_size[1]
         rotated_height = card_size[0]
-        spacing = max(28, min(56, (rect.height - rotated_height) // max(len(cards), 1)))
+        spacing = max(44, min(82, (rect.height - rotated_height) // max(len(cards), 1)))
         total_height = rotated_height + (spacing * (len(cards) - 1))
         start_y = rect.centery - (total_height // 2)
         x = rect.centerx - (rotated_width // 2)

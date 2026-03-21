@@ -8,8 +8,6 @@ from scopone.config.game import (
     POINTS_FOR_PRIMIERA,
     POINTS_FOR_SETTEBELLO,
     POINTS_PER_SWEEP,
-    THRESHOLD_CARDS,
-    THRESHOLD_COINS,
     VALORI_PRIMIERA,
 )
 from scopone.types import Card
@@ -56,8 +54,8 @@ class ScoringEngine:
 
         sweeps_points = player.sweeps * POINTS_PER_SWEEP
         points = {
-            "cards": POINTS_FOR_MOST_CARDS if captured_count > THRESHOLD_CARDS else 0,
-            "coins": POINTS_FOR_MOST_COINS if coins_count > THRESHOLD_COINS else 0,
+            "cards": 0,
+            "coins": 0,
             "settebello": POINTS_FOR_SETTEBELLO if has_settebello else 0,
             "primiera": 0,
             "sweeps": sweeps_points,
@@ -84,13 +82,9 @@ class ScoringEngine:
     def _calculate_individual_scores(players):
         final_scores = [ScoringEngine.calculate_player_score(player) for player in players]
 
-        primiera_scores = [(index, score["primiera_value"]) for index, score in enumerate(final_scores)]
-        if primiera_scores:
-            highest_primiera = max(primiera_scores, key=lambda item: item[1])[1]
-            for index, score in enumerate(final_scores):
-                if score["primiera_value"] == highest_primiera:
-                    final_scores[index]["points"]["primiera"] = POINTS_FOR_PRIMIERA
-                    final_scores[index]["total"] += POINTS_FOR_PRIMIERA
+        ScoringEngine._apply_unique_highest_bonus(final_scores, "captured_cards", "cards", POINTS_FOR_MOST_CARDS)
+        ScoringEngine._apply_unique_highest_bonus(final_scores, "coins", "coins", POINTS_FOR_MOST_COINS)
+        ScoringEngine._apply_unique_highest_bonus(final_scores, "primiera_value", "primiera", POINTS_FOR_PRIMIERA)
 
         final_scores.sort(key=lambda score: score["total"], reverse=True)
         return final_scores
@@ -122,10 +116,6 @@ class ScoringEngine:
             coins_in_team = sum(player.count_coins() for player in players if player.team == team_id)
             sweeps_points = team_data["sweeps"] * POINTS_PER_SWEEP
             total = 0
-            if team_data["cards"] > THRESHOLD_CARDS:
-                total += POINTS_FOR_MOST_CARDS
-            if coins_in_team > THRESHOLD_COINS:
-                total += POINTS_FOR_MOST_COINS
             if team_data["settebello"]:
                 total += POINTS_FOR_SETTEBELLO
             total += sweeps_points
@@ -139,10 +129,11 @@ class ScoringEngine:
                     "coins": coins_in_team,
                     "sweeps": team_data["sweeps"],
                     "primiera_value": team_data["primiera"],
+                    "has_settebello": team_data["settebello"],
                     "total": total,
                     "points": {
-                        "cards": POINTS_FOR_MOST_CARDS if team_data["cards"] > THRESHOLD_CARDS else 0,
-                        "coins": POINTS_FOR_MOST_COINS if coins_in_team > THRESHOLD_COINS else 0,
+                        "cards": 0,
+                        "coins": 0,
                         "settebello": POINTS_FOR_SETTEBELLO if team_data["settebello"] else 0,
                         "primiera": 0,
                         "sweeps": sweeps_points,
@@ -150,12 +141,9 @@ class ScoringEngine:
                 }
             )
 
-        if final_team_scores:
-            highest_primiera = max(final_team_scores, key=lambda score: score["primiera_value"])["primiera_value"]
-            for score in final_team_scores:
-                if score["primiera_value"] == highest_primiera:
-                    score["points"]["primiera"] = POINTS_FOR_PRIMIERA
-                    score["total"] += POINTS_FOR_PRIMIERA
+        ScoringEngine._apply_unique_highest_bonus(final_team_scores, "captured_cards", "cards", POINTS_FOR_MOST_CARDS)
+        ScoringEngine._apply_unique_highest_bonus(final_team_scores, "coins", "coins", POINTS_FOR_MOST_COINS)
+        ScoringEngine._apply_unique_highest_bonus(final_team_scores, "primiera_value", "primiera", POINTS_FOR_PRIMIERA)
 
         final_team_scores.sort(key=lambda score: score["total"], reverse=True)
         return final_team_scores
@@ -167,3 +155,17 @@ class ScoringEngine:
 
         highest_score = final_scores[0]["total"]
         return [score["player"] for score in final_scores if score["total"] == highest_score]
+
+    @staticmethod
+    def _apply_unique_highest_bonus(scores, value_key: str, point_key: str, points_award: int) -> None:
+        if not scores:
+            return
+
+        values = [score.get(value_key, 0) for score in scores]
+        highest_value = max(values)
+        if values.count(highest_value) != 1:
+            return
+
+        winner_index = values.index(highest_value)
+        scores[winner_index]["points"][point_key] = points_award
+        scores[winner_index]["total"] += points_award
