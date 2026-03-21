@@ -24,6 +24,10 @@ TEAM_COLORS = {
     1: (255, 176, 96),
 }
 
+PLAYER_FRAME_IDLE_COLOR = (214, 222, 234)
+PLAYER_FRAME_ACTIVE_COLOR = (223, 188, 96)
+BLOCK_Y_OFFSET = -50
+
 
 class MatchScene(Scene):
     """Renders the live match and translates user actions into engine calls."""
@@ -269,6 +273,19 @@ class MatchScene(Scene):
         right_label_rect = pygame.Rect(table_rect.right + 8, table_rect.top, width - margin - side_cards_width - table_rect.right - 16, table_rect.height)
         right_player_rect = pygame.Rect(width - side_cards_width - margin, table_rect.top, side_cards_width, table_rect.height)
 
+        for rect in (
+            top_player_rect,
+            top_label_rect,
+            table_rect,
+            left_player_rect,
+            left_label_rect,
+            right_label_rect,
+            right_player_rect,
+            bottom_label_rect,
+            bottom_player_rect,
+        ):
+            rect.move_ip(0, BLOCK_Y_OFFSET)
+
         overlay_rect = pygame.Rect(width // 2 - 340, height // 2 - 180, 680, 360)
 
         return {
@@ -379,28 +396,14 @@ class MatchScene(Scene):
     def _draw_horizontal_label(self, renderer, player, rect: pygame.Rect) -> None:
         team_label, team_color = self._get_player_team_meta(player)
         current = player == self.engine.get_current_player() and self.engine.game_active and not self.menu_open
-        border = HIGHLIGHT_COLOR if current else team_color
-        self._draw_glass_panel(renderer, rect, PANEL_ALT_COLOR, border, alpha=194)
-        renderer.draw_text(player.name, (rect.centerx, rect.top + 7), size=19, color=team_color, bold=True, align="midtop")
-        renderer.draw_text(team_label, (rect.centerx, rect.top + 28), size=14, color=TEXT_DIM_COLOR, align="midtop")
+        label_surface = self._build_player_label_surface(renderer, player.name, team_label, team_color, current)
+        label_rect = label_surface.get_rect(center=rect.center)
+        renderer.surface.blit(label_surface, label_rect)
 
     def _draw_vertical_label(self, renderer, player, rect: pygame.Rect, side: str) -> None:
         team_label, team_color = self._get_player_team_meta(player)
         current = player == self.engine.get_current_player() and self.engine.game_active and not self.menu_open
-
-        base_surface = pygame.Surface((180, 48), pygame.SRCALPHA)
-        fill = (PANEL_ALT_COLOR[0], PANEL_ALT_COLOR[1], PANEL_ALT_COLOR[2], 198)
-        border = HIGHLIGHT_COLOR if current else team_color
-        pygame.draw.rect(base_surface, fill, base_surface.get_rect(), border_radius=16)
-        pygame.draw.rect(base_surface, border, base_surface.get_rect(), width=2, border_radius=16)
-
-        name_font = renderer.assets.get_font(18, bold=True)
-        team_font = renderer.assets.get_font(13, bold=False)
-        name_surface = name_font.render(player.name, True, team_color)
-        team_surface = team_font.render(team_label, True, TEXT_DIM_COLOR)
-        base_surface.blit(name_surface, name_surface.get_rect(center=(90, 16)))
-        base_surface.blit(team_surface, team_surface.get_rect(center=(90, 33)))
-
+        base_surface = self._build_player_label_surface(renderer, player.name, team_label, team_color, current)
         rotated = pygame.transform.rotate(base_surface, 90 if side == "left" else -90)
         rotated_rect = rotated.get_rect(center=rect.center)
         renderer.surface.blit(rotated, rotated_rect)
@@ -600,3 +603,38 @@ class MatchScene(Scene):
 
     def _clamp(self, value: int, minimum: int, maximum: int) -> int:
         return max(minimum, min(maximum, value))
+
+    def _build_player_label_surface(self, renderer, player_name: str, team_label: str, team_color, current: bool) -> pygame.Surface:
+        name_font = renderer.assets.get_font(19, bold=True)
+        team_font = renderer.assets.get_font(14, bold=False)
+        name_surface = name_font.render(player_name, True, team_color)
+        team_surface = team_font.render(team_label, True, team_color)
+
+        line_gap = 4
+        padding_x = 18
+        padding_y = 12
+
+        text_block_rect = pygame.Rect(
+            0,
+            0,
+            max(name_surface.get_width(), team_surface.get_width()),
+            name_surface.get_height() + line_gap + team_surface.get_height(),
+        )
+        box_rect = text_block_rect.inflate(padding_x * 2, padding_y * 2)
+        surface = pygame.Surface(box_rect.size, pygame.SRCALPHA)
+
+        fill = (PANEL_ALT_COLOR[0], PANEL_ALT_COLOR[1], PANEL_ALT_COLOR[2], 194)
+        pygame.draw.rect(surface, fill, surface.get_rect())
+        pygame.draw.rect(
+            surface,
+            PLAYER_FRAME_ACTIVE_COLOR if current else PLAYER_FRAME_IDLE_COLOR,
+            surface.get_rect(),
+            width=6 if current else 2,
+        )
+
+        text_block_rect.center = surface.get_rect().center
+        name_rect = name_surface.get_rect(midtop=(text_block_rect.centerx, text_block_rect.top))
+        team_rect = team_surface.get_rect(midtop=(text_block_rect.centerx, name_rect.bottom + line_gap))
+        surface.blit(name_surface, name_rect)
+        surface.blit(team_surface, team_rect)
+        return surface
