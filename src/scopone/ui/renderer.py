@@ -115,9 +115,16 @@ class Renderer:
         self.draw_text(label, rect.center, size=font_size, color=text_color, bold=True, align="center")
         return rect
 
-    def draw_card(self, card, rect, face_up: bool = True) -> pygame.Rect:
+    def draw_card(self, card, rect, face_up: bool = True, angle: int = 0) -> pygame.Rect:
         rect = pygame.Rect(rect)
-        surface = self.assets.get_card_surface(card, rect.size, face_up=face_up)
+        source_size = rect.size
+        normalized_angle = angle % 360
+        if normalized_angle in (90, 270):
+            source_size = (rect.height, rect.width)
+
+        surface = self.assets.get_card_surface(card, source_size, face_up=face_up)
+        if normalized_angle:
+            surface = pygame.transform.rotate(surface, angle)
         self.surface.blit(surface, rect)
         if face_up:
             pygame.draw.rect(self.surface, CARD_BORDER_COLOR, rect, width=1, border_radius=12)
