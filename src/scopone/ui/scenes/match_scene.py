@@ -21,6 +21,7 @@ from scopone.config.ui import (
     CARD_SIZE_TABLE,
 )
 from scopone.engine.game_engine import GameEngine
+from scopone.ui.backgrounds import draw_prismatic_background
 from scopone.ui.scene_manager import Scene
 
 
@@ -157,7 +158,7 @@ class MatchScene(Scene):
     def render(self, renderer) -> None:
         assert self.engine is not None
 
-        renderer.clear(BG_COLOR)
+        draw_prismatic_background(renderer.surface, variant="game")
         width, height = renderer.surface.get_size()
         mouse_pos = pygame.mouse.get_pos()
 
@@ -173,7 +174,7 @@ class MatchScene(Scene):
         self._draw_log(renderer, log_rect)
 
     def _draw_top_bar(self, renderer, rect: pygame.Rect, mouse_pos) -> None:
-        renderer.draw_panel(rect, PANEL_COLOR)
+        renderer.draw_panel(rect, PANEL_COLOR, border=HIGHLIGHT_COLOR)
         current_player = self.engine.get_current_player()
         status = f"Turno di {current_player.name}" if self.engine.game_active else "Partita terminata"
         mode = "Visibilita completa" if self.settings["show_all_cards"] else "Modalita competitiva"
@@ -208,7 +209,7 @@ class MatchScene(Scene):
             x -= button_width + 12
 
     def _draw_center_area(self, renderer, rect: pygame.Rect) -> None:
-        renderer.draw_panel(rect, PANEL_COLOR)
+        renderer.draw_panel(rect, PANEL_COLOR, border=(116, 156, 214))
         players = self.engine.players
         num_players = len(players)
 
@@ -270,7 +271,7 @@ class MatchScene(Scene):
 
     def _draw_hand_area(self, renderer, rect: pygame.Rect) -> None:
         human = self.engine.get_human_player()
-        renderer.draw_panel(rect, PANEL_COLOR, border=HIGHLIGHT_COLOR if human == self.engine.get_current_player() else TEXT_DIM_COLOR)
+        renderer.draw_panel(rect, PANEL_COLOR, border=HIGHLIGHT_COLOR if human == self.engine.get_current_player() else (116, 156, 214))
         renderer.draw_text("La tua mano", (rect.left + 18, rect.top + 16), size=26, bold=True)
         renderer.draw_text(
             f"Carte catturate: {len(human.captured)} | Scope: {human.sweeps}",
@@ -298,7 +299,7 @@ class MatchScene(Scene):
                 self.card_hitboxes.append((card_rect, card))
 
     def _draw_log(self, renderer, rect: pygame.Rect) -> None:
-        renderer.draw_panel(rect, LOG_BG_COLOR)
+        renderer.draw_panel(rect, LOG_BG_COLOR, border=(120, 157, 214))
         renderer.draw_text("Log Partita", (rect.left + 18, rect.top + 16), size=26, bold=True)
         renderer.draw_text("ESC torna al menu", (rect.left + 18, rect.top + 48), size=15, color=TEXT_DIM_COLOR)
 

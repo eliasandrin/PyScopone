@@ -97,21 +97,21 @@ class Renderer:
         rect = pygame.Rect(rect)
         if tone == "accent":
             background = ACCENT_ALT_COLOR if hovered else ACCENT_COLOR
-            text_color = (255, 255, 255)
+            text_color = (248, 252, 255)
         elif tone == "success":
-            background = (46, 147, 98) if hovered else SUCCESS_COLOR
-            text_color = (255, 255, 255)
+            background = (74, 146, 228) if hovered else SUCCESS_COLOR
+            text_color = (248, 252, 255)
         elif tone == "danger":
-            background = (160, 56, 56) if hovered else DANGER_COLOR
-            text_color = (255, 255, 255)
+            background = (172, 87, 112) if hovered else DANGER_COLOR
+            text_color = (248, 252, 255)
         elif tone == "warning":
-            background = (170, 130, 45) if hovered else WARNING_COLOR
-            text_color = (24, 24, 24)
+            background = (176, 208, 248) if hovered else WARNING_COLOR
+            text_color = (15, 28, 49)
         else:
-            background = (44, 58, 82) if hovered else (34, 45, 64)
-            text_color = TEXT_COLOR
+            background = (38, 60, 94) if hovered else (26, 43, 71)
+            text_color = (236, 244, 255)
 
-        self.draw_panel(rect, background, border=(90, 112, 144))
+        self.draw_panel(rect, background, border=(134, 176, 230))
         self.draw_text(label, rect.center, size=font_size, color=text_color, bold=True, align="center")
         return rect
 

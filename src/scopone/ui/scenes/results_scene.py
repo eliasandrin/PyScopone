@@ -1,6 +1,7 @@
 import pygame
 
 from scopone.config.ui import BG_COLOR, LOG_BG_COLOR, PANEL_ALT_COLOR, PANEL_COLOR, TEXT_COLOR, TEXT_DIM_COLOR
+from scopone.ui.backgrounds import draw_prismatic_background
 from scopone.ui.scene_manager import Scene
 
 
@@ -38,7 +39,7 @@ class ResultsScene(Scene):
             return
 
     def render(self, renderer) -> None:
-        renderer.clear(BG_COLOR)
+        draw_prismatic_background(renderer.surface, variant="game")
         width, height = renderer.surface.get_size()
         mouse_pos = pygame.mouse.get_pos()
 
@@ -47,7 +48,7 @@ class ResultsScene(Scene):
         left_rect = pygame.Rect(summary_rect.left, summary_rect.top, summary_rect.width - 340, summary_rect.height)
         right_rect = pygame.Rect(left_rect.right + 18, summary_rect.top, 322, summary_rect.height)
 
-        renderer.draw_panel(panel, PANEL_COLOR)
+        renderer.draw_panel(panel, PANEL_COLOR, border=(133, 176, 235))
         renderer.draw_text("Risultati finali", (left_rect.left + 12, left_rect.top + 10), size=42, bold=True)
         renderer.draw_text(
             f"{self.settings['num_players']} giocatori | {self.settings['difficulty']} | "
@@ -60,7 +61,7 @@ class ResultsScene(Scene):
         card_top = left_rect.top + 100
         for index, score in enumerate(self.final_scores):
             card_rect = pygame.Rect(left_rect.left + 8, card_top + index * 136, left_rect.width - 16, 118)
-            renderer.draw_panel(card_rect, PANEL_ALT_COLOR)
+            renderer.draw_panel(card_rect, PANEL_ALT_COLOR, border=(118, 162, 224))
 
             renderer.draw_text(f"{index + 1}. {score['player']}", (card_rect.left + 18, card_rect.top + 16), size=28, bold=True)
             renderer.draw_text(f"{score['total']} punti", (card_rect.right - 20, card_rect.top + 18), size=28, bold=True, align="topright")
@@ -84,7 +85,7 @@ class ResultsScene(Scene):
                     breakdown.append(f"{key}: +{value}")
             renderer.draw_text("  ".join(breakdown) or "Nessun bonus", (card_rect.left + 18, card_rect.bottom - 26), size=17, color=TEXT_COLOR)
 
-        renderer.draw_panel(right_rect, LOG_BG_COLOR)
+        renderer.draw_panel(right_rect, LOG_BG_COLOR, border=(118, 162, 224))
         renderer.draw_text("Ultimi eventi", (right_rect.left + 18, right_rect.top + 16), size=28, bold=True)
 
         y = right_rect.top + 56
