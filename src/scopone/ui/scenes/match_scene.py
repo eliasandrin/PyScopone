@@ -178,8 +178,23 @@ class MatchScene(Scene):
             elif action == "new_game":
                 self._start_new_game()
             elif action == "quit":
-                self.app.request_quit()
+                self._return_to_setup()
             return
+
+    def _return_to_setup(self) -> None:
+        self.menu_open = False
+        self.log_visible = False
+        self.log_dragging = False
+        self.pending_ai_player_id = None
+        self.ai_timer = 0.0
+        self.result_dispatched = False
+        self.animations.clear()
+        self.card_hitboxes = []
+        self.card_position_map = {"hands": {}, "table": {}}
+        self.capture_pile_targets = {}
+        self.last_layout = None
+        self.engine = None
+        self.app.show_setup()
 
     def _cycle_difficulty(self) -> None:
         difficulties = ["easy", "normal", "expert", "adaptive"]
