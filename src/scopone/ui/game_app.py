@@ -5,6 +5,7 @@ os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 import pygame
 
 from scopone.config.ui import FPS, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE, WINDOW_WIDTH
+from scopone.ui.audio import AudioManager
 from scopone.ui.assets import AssetManager
 from scopone.ui.controller import InputController
 from scopone.ui.renderer import Renderer
@@ -18,15 +19,23 @@ class GameApp:
     def __init__(self, headless: bool = False) -> None:
         if headless:
             os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+            os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
+        pygame.mixer.pre_init(44100, -16, 1, 512)
         pygame.init()
         pygame.font.init()
+        try:
+            if pygame.mixer.get_init() is None:
+                pygame.mixer.init()
+        except pygame.error:
+            pass
 
         self.clock = pygame.time.Clock()
         self.running = True
         self.is_fullscreen = False
         self.windowed_size = (WINDOW_WIDTH, WINDOW_HEIGHT)
         self.assets = AssetManager()
+        self.audio = AudioManager()
         self.screen = self._set_display_mode(self.windowed_size, fullscreen=False)
         self.renderer = Renderer(self.screen, self.assets)
         self.controller = InputController()

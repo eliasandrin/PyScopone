@@ -15,6 +15,7 @@ from scopone.config.ui import (
 )
 from scopone.engine.game_engine import GameEngine
 from scopone.engine.scoring import ScoringEngine
+from scopone.ui.animation import AnimationManager, CardTween
 from scopone.ui.backgrounds import draw_prismatic_background
 from scopone.ui.scene_manager import Scene
 
@@ -27,6 +28,11 @@ TEAM_COLORS = {
 PLAYER_FRAME_IDLE_COLOR = (214, 222, 234)
 PLAYER_FRAME_ACTIVE_COLOR = (223, 188, 96)
 BLOCK_Y_OFFSET = -50
+
+DEAL_CARD_DELAY = 0.075
+DEAL_CARD_DURATION = 0.28
+PLAY_CARD_DURATION = 0.24
+CAPTURE_CARD_DURATION = 0.30
 
 
 class MatchScene(Scene):
@@ -52,6 +58,14 @@ class MatchScene(Scene):
         self.log_drag_offset = (0, 0)
         self.log_header_rect = pygame.Rect(0, 0, 0, 0)
 
+        self.animations = AnimationManager()
+        self.hidden_hand_cards = {}
+        self.hidden_table_cards = set()
+        self.card_position_map = {"hands": {}, "table": {}}
+        self.capture_pile_targets = {}
+        self.last_layout = None
+        self.deal_sequence_pending = False
+
         self._start_new_game()
 
     def _start_new_game(self) -> None:
@@ -68,6 +82,15 @@ class MatchScene(Scene):
         self.ai_timer = 0.0
         self.result_dispatched = False
         self.menu_open = False
+        self.log_visible = False
+        self.animations.clear()
+        self.card_hitboxes = []
+        self.last_layout = None
+        self.card_position_map = {"hands": {}, "table": {}}
+        self.capture_pile_targets = {}
+        self.hidden_hand_cards = dict((player.id, set(player.hand)) for player in self.engine.players)
+        self.hidden_table_cards = set(self.engine.table)
+        self.deal_sequence_pending = True
 
     def _append_log(self, message: str) -> None:
         self.log_messages.append(message)
@@ -117,6 +140,9 @@ class MatchScene(Scene):
             self._handle_menu_click(event.pos)
             return
 
+        if self.deal_sequence_pending or self.animations.has_active():
+            return
+
         current_player = self.engine.get_current_player()
         if not self.engine.game_active or not current_player.is_human:
             return
@@ -158,12 +184,19 @@ class MatchScene(Scene):
         if self.engine is None or self.result_dispatched:
             return
 
+        if self.menu_open:
+            return
+
+        if self.deal_sequence_pending:
+            return
+
+        self.animations.update(dt)
+        if self.animations.has_active():
+            return
+
         if not self.engine.game_active:
             self.result_dispatched = True
             self.app.show_results(self.engine.final_scores, self.settings, self.log_messages)
-            return
-
-        if self.menu_open:
             return
 
         current_player = self.engine.get_current_player()
@@ -185,15 +218,16 @@ class MatchScene(Scene):
     def _play_human_card(self, card) -> None:
         assert self.engine is not None
         current_player = self.engine.get_current_player()
+        source_rect = self._get_hand_card_rect(current_player.id, card)
+        captured_cards = self._preview_captured_cards(card)
         if not self.engine.play_card(current_player.id, card):
             self._append_log("Mossa non valida.")
             return
 
         self._append_log("Tu giochi {0}".format(self._format_card(card)))
-        if self.engine.game_active:
-            self.engine.next_player()
         self.pending_ai_player_id = None
         self.ai_timer = 0.0
+        self._queue_move_sequence(current_player, card, source_rect, captured_cards, self.engine.last_move_result)
 
     def _play_ai_turn(self) -> None:
         assert self.engine is not None
@@ -207,13 +241,130 @@ class MatchScene(Scene):
         if selected_card is None:
             return
 
+        source_rect = self._get_hand_card_rect(current_player.id, selected_card)
+        captured_cards = self._preview_captured_cards(selected_card)
         self.engine.play_card(current_player.id, selected_card)
         self._append_log("{0} gioca {1}".format(current_player.name, self._format_card(selected_card)))
         self._append_log("AI: {0}".format(strategy.get_last_decision_reason()))
+        self.pending_ai_player_id = None
+        self.ai_timer = 0.0
+        self._queue_move_sequence(current_player, selected_card, source_rect, captured_cards, self.engine.last_move_result)
+
+    def _queue_move_sequence(self, player, card, source_rect, captured_cards, move_result) -> None:
+        if source_rect is None or self.last_layout is None or move_result is None:
+            self._after_move_animations(move_result)
+            return
+
+        start_angle = self._get_player_angle(player.id)
+        if captured_cards:
+            target_rect = self._get_table_stack_rect(self.last_layout["table_rect"], 0, len(captured_cards) + 1)
+            self.animations.add(
+                CardTween(
+                    card=card,
+                    start_rect=source_rect,
+                    target_rect=target_rect,
+                    duration=PLAY_CARD_DURATION,
+                    face_up=True,
+                    start_angle=start_angle,
+                    target_angle=0,
+                    on_start=lambda: self.app.audio.play("play"),
+                    on_complete=lambda: self._queue_capture_sequence(player.id, card, captured_cards, move_result),
+                    layer=3,
+                )
+            )
+            return
+
+        self.hidden_table_cards.add(card)
+        table_rects = self._get_table_card_rects(self.last_layout["table_rect"], move_result["table_cards_after"])
+        target_rect = table_rects.get(card, self._get_table_stack_rect(self.last_layout["table_rect"], 0, 1))
+        self.animations.add(
+            CardTween(
+                card=card,
+                start_rect=source_rect,
+                target_rect=target_rect,
+                duration=PLAY_CARD_DURATION,
+                face_up=True,
+                start_angle=start_angle,
+                target_angle=0,
+                on_start=lambda: self.app.audio.play("play"),
+                on_complete=lambda: self._finish_table_play(card, move_result),
+                layer=3,
+            )
+        )
+
+    def _finish_table_play(self, card, move_result) -> None:
+        self.hidden_table_cards.discard(card)
+        self._after_move_animations(move_result)
+
+    def _queue_capture_sequence(self, player_id: int, played_card, captured_cards, move_result) -> None:
+        if self.last_layout is None:
+            self._after_move_animations(move_result)
+            return
+
+        cards_to_collect = [played_card] + list(captured_cards)
+        if not cards_to_collect:
+            self._after_move_animations(move_result)
+            return
+
+        remaining = {"count": len(cards_to_collect)}
+        capture_target = self.capture_pile_targets.get(player_id, self._get_default_capture_target(self.last_layout["table_rect"]))
+
+        def handle_complete():
+            remaining["count"] -= 1
+            if remaining["count"] <= 0:
+                self._after_move_animations(move_result)
+
+        for index, current_card in enumerate(cards_to_collect):
+            start_rect = self._get_table_stack_rect(self.last_layout["table_rect"], index, len(cards_to_collect))
+            target_rect = capture_target.move(index * 2, index * 2)
+            self.animations.add(
+                CardTween(
+                    card=current_card,
+                    start_rect=start_rect,
+                    target_rect=target_rect,
+                    duration=CAPTURE_CARD_DURATION,
+                    face_up=True,
+                    start_angle=0,
+                    target_angle=0,
+                    on_start=(lambda: self.app.audio.play("capture")) if index == 0 else None,
+                    on_complete=handle_complete,
+                    layer=4,
+                )
+            )
+
+    def _after_move_animations(self, move_result) -> None:
+        if move_result is None:
+            return
+
+        if move_result.get("restocked") and self.last_layout is not None:
+            self._prepare_restock_visibility()
+            self._schedule_deal_sequence(
+                self.last_layout,
+                include_table=False,
+                only_player_ids=[player.id for player in self.engine.players],
+                on_complete=self._finalize_turn_after_animation,
+            )
+            return
+
+        self._finalize_turn_after_animation()
+
+    def _prepare_restock_visibility(self) -> None:
+        for player in self.engine.players:
+            self.hidden_hand_cards.setdefault(player.id, set()).update(player.hand)
+
+    def _finalize_turn_after_animation(self) -> None:
+        if self.engine is None:
+            return
         if self.engine.game_active:
             self.engine.next_player()
         self.pending_ai_player_id = None
         self.ai_timer = 0.0
+
+    def _preview_captured_cards(self, card):
+        capture_options = ScoringEngine.find_captures(card, self.engine.table)
+        if capture_options and capture_options[0]:
+            return list(capture_options[0])
+        return []
 
     def _format_card(self, card) -> str:
         return "{0}{1}".format(card[0], SIMBOLI[card[1]])
@@ -224,23 +375,117 @@ class MatchScene(Scene):
         draw_prismatic_background(renderer.surface, variant="game")
         width, height = renderer.surface.get_size()
         layout = self._calculate_layout(width, height)
+        self.last_layout = layout
+        self.capture_pile_targets = layout["capture_targets"]
         self._ensure_log_rect(width, height)
         mouse_pos = pygame.mouse.get_pos()
 
+        if self.deal_sequence_pending:
+            self._schedule_deal_sequence(
+                layout,
+                include_table=True,
+                only_player_ids=[player.id for player in self.engine.players],
+            )
+            self.deal_sequence_pending = False
+
         self.card_hitboxes = []
+        self.card_position_map = {"hands": {}, "table": {}}
         self.menu_button_rect = layout["menu_button"]
 
         self._draw_table(renderer, layout["table_rect"])
+        self._draw_deck_anchor(renderer, layout["deck_rect"])
         self._draw_table_cards(renderer, layout["table_rect"])
         self._draw_live_score_panel(renderer, layout["score_panel"])
         self._draw_menu_button(renderer, layout["menu_button"], mouse_pos)
         self._draw_players(renderer, layout)
+        self.animations.render(renderer)
 
         if self.log_visible:
             self._draw_log_overlay(renderer)
 
         if self.menu_open:
             self._draw_menu_overlay(renderer, layout["overlay_rect"], mouse_pos)
+
+    def _schedule_deal_sequence(self, layout, include_table: bool, only_player_ids, on_complete=None) -> None:
+        deck_rect = layout["deck_rect"]
+        reveal_registry = []
+        sequence_index = 0
+
+        if include_table:
+            table_rects = self._get_table_card_rects(layout["table_rect"], self.engine.table)
+            for card in self.engine.table:
+                target_rect = table_rects.get(card)
+                if target_rect is None:
+                    continue
+                reveal_registry.append(("table", None, card))
+                self.animations.add(
+                    CardTween(
+                        card=card,
+                        start_rect=deck_rect,
+                        target_rect=target_rect,
+                        duration=DEAL_CARD_DURATION,
+                        face_up=True,
+                        delay=sequence_index * DEAL_CARD_DELAY,
+                        on_start=lambda: self.app.audio.play("deal"),
+                        on_complete=self._make_reveal_callback("table", None, card, reveal_registry, on_complete),
+                        layer=2,
+                    )
+                )
+                sequence_index += 1
+
+        hand_rect_maps = self._get_all_hand_rect_maps(layout)
+        player_lookup = dict((player.id, player) for player in self.engine.players)
+        ordered_ids = [player.id for player in self.engine.players if player.id in only_player_ids]
+        max_cards = 0
+        for player_id in ordered_ids:
+            max_cards = max(max_cards, len(player_lookup[player_id].hand))
+
+        for card_index in range(max_cards):
+            for player_id in ordered_ids:
+                player = player_lookup[player_id]
+                if card_index >= len(player.hand):
+                    continue
+                card = player.hand[card_index]
+                target_rect = hand_rect_maps.get(player_id, {}).get(card)
+                if target_rect is None:
+                    continue
+                reveal_registry.append(("hand", player_id, card))
+                self.animations.add(
+                    CardTween(
+                        card=card,
+                        start_rect=deck_rect,
+                        target_rect=target_rect,
+                        duration=DEAL_CARD_DURATION,
+                        face_up=self._is_face_up_player(player),
+                        start_angle=0,
+                        target_angle=self._get_player_angle(player.id),
+                        delay=sequence_index * DEAL_CARD_DELAY,
+                        on_start=lambda: self.app.audio.play("deal"),
+                        on_complete=self._make_reveal_callback("hand", player_id, card, reveal_registry, on_complete),
+                        layer=2,
+                    )
+                )
+                sequence_index += 1
+
+        if not reveal_registry and on_complete is not None:
+            on_complete()
+
+    def _make_reveal_callback(self, area: str, player_id, card, registry, final_callback):
+        def callback():
+            if area == "table":
+                self.hidden_table_cards.discard(card)
+            else:
+                self.hidden_hand_cards.setdefault(player_id, set()).discard(card)
+
+            try:
+                registry.remove((area, player_id, card))
+            except ValueError:
+                pass
+
+            if not registry and final_callback is not None:
+                final_callback()
+
+        return callback
 
     def _calculate_layout(self, width: int, height: int):
         margin = self._clamp(int(min(width, height) * 0.02), 14, 28)
@@ -286,10 +531,24 @@ class MatchScene(Scene):
         ):
             rect.move_ip(0, BLOCK_Y_OFFSET)
 
+        deck_rect = pygame.Rect(
+            table_rect.right - CARD_SIZE_SMALL[0] - 22,
+            table_rect.centery - (CARD_SIZE_SMALL[1] // 2),
+            CARD_SIZE_SMALL[0],
+            CARD_SIZE_SMALL[1],
+        )
+        capture_targets = {
+            0: pygame.Rect(bottom_player_rect.left + 18, bottom_label_rect.top - 16, CARD_SIZE_SMALL[0], CARD_SIZE_SMALL[1]),
+            1: pygame.Rect(left_player_rect.centerx - (CARD_SIZE_SMALL[0] // 2), table_rect.bottom - CARD_SIZE_SMALL[1] - 18, CARD_SIZE_SMALL[0], CARD_SIZE_SMALL[1]),
+            2: pygame.Rect(top_player_rect.left + 18, top_player_rect.top + 6, CARD_SIZE_SMALL[0], CARD_SIZE_SMALL[1]),
+            3: pygame.Rect(right_player_rect.centerx - (CARD_SIZE_SMALL[0] // 2), table_rect.top + 18, CARD_SIZE_SMALL[0], CARD_SIZE_SMALL[1]),
+        }
         overlay_rect = pygame.Rect(width // 2 - 340, height // 2 - 180, 680, 360)
 
         return {
             "table_rect": table_rect,
+            "deck_rect": deck_rect,
+            "capture_targets": capture_targets,
             "top_player_rect": top_player_rect,
             "bottom_player_rect": bottom_player_rect,
             "left_player_rect": left_player_rect,
@@ -315,80 +574,75 @@ class MatchScene(Scene):
         renderer.surface.blit(table_surface, rect.topleft)
         renderer.draw_text("Tavolo", (rect.centerx, rect.top + 14), size=24, bold=True, align="center")
 
+    def _draw_deck_anchor(self, renderer, deck_rect: pygame.Rect) -> None:
+        if self.engine.num_players == 2 or self.animations.has_active():
+            renderer.draw_card((1, "Denari"), deck_rect, face_up=False)
+
     def _draw_table_cards(self, renderer, table_rect: pygame.Rect) -> None:
-        if not self.engine.table:
+        rect_map = self._get_table_card_rects(table_rect, self.engine.table)
+        self.card_position_map["table"] = rect_map
+
+        visible_cards = [card for card in self.engine.table if card not in self.hidden_table_cards]
+        if not visible_cards:
             renderer.draw_text("Tavolo vuoto", table_rect.center, size=22, color=TEXT_DIM_COLOR, align="center")
             return
 
-        card_width, card_height = CARD_SIZE_TABLE
-        spacing = max(18, min(92, (table_rect.width - card_width) // max(len(self.engine.table), 1)))
-        total_width = card_width + (spacing * (len(self.engine.table) - 1))
-        start_x = table_rect.centerx - (total_width // 2)
-        y = table_rect.centery - (card_height // 2)
-        for index, card in enumerate(self.engine.table):
-            card_rect = pygame.Rect(start_x + (index * spacing), y, card_width, card_height)
-            renderer.draw_card(card, card_rect, face_up=True)
+        for card in self.engine.table:
+            if card in self.hidden_table_cards:
+                continue
+            renderer.draw_card(card, rect_map[card], face_up=True)
 
     def _draw_players(self, renderer, layout) -> None:
+        hand_rect_maps = self._get_all_hand_rect_maps(layout)
+        self.card_position_map["hands"] = hand_rect_maps
+
         if self.engine.num_players == 2:
-            self._draw_horizontal_ai_hand(renderer, self.engine.players[1], layout["top_player_rect"])
+            self._draw_horizontal_ai_hand(renderer, self.engine.players[1], hand_rect_maps[self.engine.players[1].id])
             self._draw_horizontal_label(renderer, self.engine.players[1], layout["top_label_rect"])
         else:
-            self._draw_horizontal_ai_hand(renderer, self.engine.players[2], layout["top_player_rect"])
+            self._draw_horizontal_ai_hand(renderer, self.engine.players[2], hand_rect_maps[self.engine.players[2].id])
             self._draw_horizontal_label(renderer, self.engine.players[2], layout["top_label_rect"])
-            self._draw_vertical_ai_hand(renderer, self.engine.players[1], layout["left_player_rect"], side="left")
+            self._draw_vertical_ai_hand(renderer, self.engine.players[1], hand_rect_maps[self.engine.players[1].id], side="left")
             self._draw_vertical_label(renderer, self.engine.players[1], layout["left_label_rect"], side="left")
-            self._draw_vertical_ai_hand(renderer, self.engine.players[3], layout["right_player_rect"], side="right")
+            self._draw_vertical_ai_hand(renderer, self.engine.players[3], hand_rect_maps[self.engine.players[3].id], side="right")
             self._draw_vertical_label(renderer, self.engine.players[3], layout["right_label_rect"], side="right")
 
-        self._draw_human_hand(renderer, self.engine.get_human_player(), layout["bottom_player_rect"])
+        self._draw_human_hand(renderer, self.engine.get_human_player(), hand_rect_maps[self.engine.get_human_player().id])
         self._draw_horizontal_label(renderer, self.engine.get_human_player(), layout["bottom_label_rect"])
 
-    def _draw_horizontal_ai_hand(self, renderer, player, rect: pygame.Rect) -> None:
-        if not player.hand:
+    def _draw_horizontal_ai_hand(self, renderer, player, rect_map) -> None:
+        show_cards = self._is_face_up_player(player)
+        for card in player.hand:
+            if card in self.hidden_hand_cards.get(player.id, set()):
+                continue
+            renderer.draw_card(card, rect_map[card], face_up=show_cards)
+
+    def _draw_vertical_ai_hand(self, renderer, player, rect_map, side: str) -> None:
+        del side
+        show_cards = self._is_face_up_player(player)
+        angle = self._get_player_angle(player.id)
+        for card in player.hand:
+            if card in self.hidden_hand_cards.get(player.id, set()):
+                continue
+            renderer.draw_card(card, rect_map[card], face_up=show_cards, angle=angle)
+
+    def _draw_human_hand(self, renderer, player, rect_map) -> None:
+        visible_cards = [card for card in player.hand if card not in self.hidden_hand_cards.get(player.id, set())]
+        if not visible_cards:
+            if self.last_layout is not None:
+                renderer.draw_text("Mano vuota", self.last_layout["bottom_player_rect"].center, size=22, color=TEXT_DIM_COLOR, align="center")
             return
 
-        card_width, card_height = CARD_SIZE_SMALL
-        show_cards = self.settings["show_all_cards"]
-        spacing = max(18, min(44, (rect.width - card_width) // max(len(player.hand), 1)))
-        total_width = card_width + (spacing * (len(player.hand) - 1))
-        start_x = rect.centerx - (total_width // 2)
-        y = rect.bottom - card_height - 2
-        for index, card in enumerate(player.hand):
-            card_rect = pygame.Rect(start_x + (index * spacing), y, card_width, card_height)
-            renderer.draw_card(card, card_rect, face_up=show_cards)
-
-    def _draw_vertical_ai_hand(self, renderer, player, rect: pygame.Rect, side: str) -> None:
-        if not player.hand:
-            return
-
-        rotated_width = CARD_SIZE_SMALL[1]
-        rotated_height = CARD_SIZE_SMALL[0]
-        show_cards = self.settings["show_all_cards"]
-        spacing = max(16, min(30, (rect.height - rotated_height) // max(len(player.hand), 1)))
-        total_height = rotated_height + (spacing * (len(player.hand) - 1))
-        start_y = rect.centery - (total_height // 2)
-        x = rect.centerx - (rotated_width // 2)
-        angle = 90 if side == "left" else 270
-
-        for index, card in enumerate(player.hand):
-            card_rect = pygame.Rect(x, start_y + (index * spacing), rotated_width, rotated_height)
-            renderer.draw_card(card, card_rect, face_up=show_cards, angle=angle)
-
-    def _draw_human_hand(self, renderer, player, rect: pygame.Rect) -> None:
-        if not player.hand:
-            renderer.draw_text("Mano vuota", rect.center, size=22, color=TEXT_DIM_COLOR, align="center")
-            return
-
-        card_width, card_height = CARD_SIZE_HAND
-        spacing = max(34, min(82, (rect.width - card_width) // max(len(player.hand), 1)))
-        total_width = card_width + (spacing * (len(player.hand) - 1))
-        start_x = rect.centerx - (total_width // 2)
-        y = rect.bottom - card_height - 8
-        current_human_turn = self.engine.game_active and self.engine.get_current_player().is_human and not self.menu_open
-        for index, card in enumerate(player.hand):
-            lift = 10 if current_human_turn else 0
-            card_rect = pygame.Rect(start_x + (index * spacing), y - lift, card_width, card_height)
+        current_human_turn = (
+            self.engine.game_active
+            and self.engine.get_current_player().is_human
+            and not self.menu_open
+            and not self.animations.has_active()
+        )
+        for card in player.hand:
+            if card in self.hidden_hand_cards.get(player.id, set()):
+                continue
+            card_rect = rect_map[card]
             renderer.draw_card(card, card_rect, face_up=True)
             if current_human_turn:
                 self.card_hitboxes.append((card_rect, card))
@@ -638,3 +892,110 @@ class MatchScene(Scene):
         surface.blit(name_surface, name_rect)
         surface.blit(team_surface, team_rect)
         return surface
+
+    def _get_all_hand_rect_maps(self, layout):
+        rect_maps = {}
+        for player in self.engine.players:
+            side = self._get_player_side(player.id)
+            if side == "bottom":
+                current_turn = self.engine.game_active and self.engine.get_current_player().id == player.id and not self.menu_open
+                rect_maps[player.id] = self._get_horizontal_hand_rects(
+                    layout["bottom_player_rect"],
+                    player.hand,
+                    CARD_SIZE_HAND,
+                    34,
+                    82,
+                    bottom_padding=8,
+                    lift=10 if current_turn else 0,
+                )
+            elif side == "top":
+                rect_maps[player.id] = self._get_horizontal_hand_rects(
+                    layout["top_player_rect"],
+                    player.hand,
+                    CARD_SIZE_SMALL,
+                    18,
+                    44,
+                    bottom_padding=2,
+                    lift=0,
+                )
+            else:
+                player_rect = layout["left_player_rect"] if side == "left" else layout["right_player_rect"]
+                rect_maps[player.id] = self._get_vertical_hand_rects(player_rect, player.hand, CARD_SIZE_SMALL)
+        return rect_maps
+
+    def _get_horizontal_hand_rects(self, rect: pygame.Rect, cards, card_size, spacing_min: int, spacing_max: int, bottom_padding: int, lift: int):
+        rect_map = {}
+        if not cards:
+            return rect_map
+
+        card_width, card_height = card_size
+        spacing = max(spacing_min, min(spacing_max, (rect.width - card_width) // max(len(cards), 1)))
+        total_width = card_width + (spacing * (len(cards) - 1))
+        start_x = rect.centerx - (total_width // 2)
+        y = rect.bottom - card_height - bottom_padding - lift
+        for index, card in enumerate(cards):
+            rect_map[card] = pygame.Rect(start_x + (index * spacing), y, card_width, card_height)
+        return rect_map
+
+    def _get_vertical_hand_rects(self, rect: pygame.Rect, cards, card_size):
+        rect_map = {}
+        if not cards:
+            return rect_map
+
+        rotated_width = card_size[1]
+        rotated_height = card_size[0]
+        spacing = max(28, min(56, (rect.height - rotated_height) // max(len(cards), 1)))
+        total_height = rotated_height + (spacing * (len(cards) - 1))
+        start_y = rect.centery - (total_height // 2)
+        x = rect.centerx - (rotated_width // 2)
+        for index, card in enumerate(cards):
+            rect_map[card] = pygame.Rect(x, start_y + (index * spacing), rotated_width, rotated_height)
+        return rect_map
+
+    def _get_table_card_rects(self, table_rect: pygame.Rect, cards):
+        rect_map = {}
+        if not cards:
+            return rect_map
+
+        card_width, card_height = CARD_SIZE_TABLE
+        spacing = max(18, min(92, (table_rect.width - card_width) // max(len(cards), 1)))
+        total_width = card_width + (spacing * (len(cards) - 1))
+        start_x = table_rect.centerx - (total_width // 2)
+        y = table_rect.centery - (card_height // 2)
+        for index, card in enumerate(cards):
+            rect_map[card] = pygame.Rect(start_x + (index * spacing), y, card_width, card_height)
+        return rect_map
+
+    def _get_table_stack_rect(self, table_rect: pygame.Rect, index: int, total_cards: int) -> pygame.Rect:
+        spread = min(14, max(4, total_cards * 2))
+        start_x = table_rect.centerx - (CARD_SIZE_TABLE[0] // 2) - ((total_cards - 1) * spread // 2)
+        start_y = table_rect.centery - (CARD_SIZE_TABLE[1] // 2) - ((total_cards - 1) * spread // 3)
+        return pygame.Rect(start_x + (index * spread), start_y + (index * max(3, spread // 2)), CARD_SIZE_TABLE[0], CARD_SIZE_TABLE[1])
+
+    def _get_default_capture_target(self, table_rect: pygame.Rect) -> pygame.Rect:
+        return pygame.Rect(table_rect.right - CARD_SIZE_SMALL[0], table_rect.top, CARD_SIZE_SMALL[0], CARD_SIZE_SMALL[1])
+
+    def _get_hand_card_rect(self, player_id: int, card):
+        return self.card_position_map.get("hands", {}).get(player_id, {}).get(card)
+
+    def _get_player_side(self, player_id: int) -> str:
+        if player_id == 0:
+            return "bottom"
+        if self.engine.num_players == 2:
+            return "top"
+        if player_id == 1:
+            return "left"
+        if player_id == 2:
+            return "top"
+        return "right"
+
+    def _get_player_angle(self, player_id: int) -> int:
+        side = self._get_player_side(player_id)
+        if side == "left":
+            return 90
+        if side == "right":
+            return 270
+        return 0
+
+    def _is_face_up_player(self, player) -> bool:
+        return player.is_human or self.settings["show_all_cards"]

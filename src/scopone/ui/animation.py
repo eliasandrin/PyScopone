@@ -1,0 +1,137 @@
+"""Non-blocking tween helpers for card motion."""
+
+from __future__ import annotations
+
+from typing import Callable, List, Optional
+
+import pygame
+
+
+def _lerp(start: float, end: float, progress: float) -> float:
+    return start + ((end - start) * progress)
+
+
+class CardTween:
+    """Interpolates a card rect and angle over time without blocking the game loop."""
+
+    def __init__(
+        self,
+        card,
+        start_rect,
+        target_rect,
+        duration: float,
+        face_up: bool = True,
+        start_angle: float = 0.0,
+        target_angle: float = 0.0,
+        delay: float = 0.0,
+        on_start: Optional[Callable[[], None]] = None,
+        on_complete: Optional[Callable[[], None]] = None,
+        layer: int = 0,
+    ) -> None:
+        self.card = card
+        self.start_rect = pygame.Rect(start_rect)
+        self.target_rect = pygame.Rect(target_rect)
+        self.duration = max(duration, 0.001)
+        self.face_up = face_up
+        self.start_angle = float(start_angle)
+        self.target_angle = float(target_angle)
+        self.delay = max(delay, 0.0)
+        self.on_start = on_start
+        self.on_complete = on_complete
+        self.layer = layer
+
+        self.elapsed = 0.0
+        self.started = False
+        self.completed = False
+
+    def update(self, dt: float) -> bool:
+        if self.completed:
+            return True
+
+        self.elapsed += dt
+
+        if not self.started and self.elapsed >= self.delay:
+            self.started = True
+            if self.on_start is not None:
+                self.on_start()
+
+        if self.elapsed < self.delay:
+            return False
+
+        progress = min((self.elapsed - self.delay) / self.duration, 1.0)
+        if progress >= 1.0:
+            self.completed = True
+            return True
+
+        return False
+
+    def get_rect(self) -> pygame.Rect:
+        if not self.started and self.delay > 0.0:
+            return self.start_rect.copy()
+
+        progress = min(max((self.elapsed - self.delay) / self.duration, 0.0), 1.0)
+        return pygame.Rect(
+            round(_lerp(self.start_rect.x, self.target_rect.x, progress)),
+            round(_lerp(self.start_rect.y, self.target_rect.y, progress)),
+            round(_lerp(self.start_rect.width, self.target_rect.width, progress)),
+            round(_lerp(self.start_rect.height, self.target_rect.height, progress)),
+        )
+
+    def get_angle(self) -> int:
+        if not self.started and self.delay > 0.0:
+            return int(round(self.start_angle))
+
+        progress = min(max((self.elapsed - self.delay) / self.duration, 0.0), 1.0)
+        return int(round(_lerp(self.start_angle, self.target_angle, progress)))
+
+
+class AnimationManager:
+    """Tracks active card tweens and renders them above the static board."""
+
+    def __init__(self) -> None:
+        self.animations = []  # type: List[CardTween]
+        self._pending_additions = []  # type: List[CardTween]
+        self._updating = False
+
+    def clear(self) -> None:
+        self.animations = []
+        self._pending_additions = []
+
+    def add(self, animation: CardTween) -> CardTween:
+        if self._updating:
+            self._pending_additions.append(animation)
+        else:
+            self.animations.append(animation)
+        return animation
+
+    def has_active(self) -> bool:
+        return bool(self.animations)
+
+    def update(self, dt: float) -> None:
+        active = []
+        completed = []
+        self._updating = True
+        for animation in self.animations:
+            if animation.update(dt):
+                completed.append(animation)
+            else:
+                active.append(animation)
+        self._updating = False
+        self.animations = active
+
+        if self._pending_additions:
+            self.animations.extend(self._pending_additions)
+            self._pending_additions = []
+
+        for animation in completed:
+            if animation.on_complete is not None:
+                animation.on_complete()
+
+    def render(self, renderer) -> None:
+        for animation in sorted(self.animations, key=lambda item: item.layer):
+            renderer.draw_card(
+                animation.card,
+                animation.get_rect(),
+                face_up=animation.face_up,
+                angle=animation.get_angle(),
+            )

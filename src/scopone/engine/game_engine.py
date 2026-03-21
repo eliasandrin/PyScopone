@@ -34,6 +34,7 @@ class GameEngine:
         self.moves_played = []  # type: List[Tuple[str, Card]]
         self.final_scores = []  # type: List[Dict]
         self.game_history = []  # type: List[Dict]
+        self.last_move_result = None  # type: Optional[Dict]
 
         self._initialize_players(player_names)
 
@@ -60,6 +61,7 @@ class GameEngine:
         self.game_active = True
         self.moves_played = []
         self.final_scores = []
+        self.last_move_result = None
 
         for player in self.players:
             player.reset()
@@ -120,6 +122,10 @@ class GameEngine:
         if not player.has_card(card):
             return False
 
+        captured_combo = []  # type: List[Card]
+        sweep_scored = False
+        restocked = False
+
         player.remove_from_hand(card)
         self.seen_cards.add(card)
         self.moves_played.append((player.name, card))
@@ -136,6 +142,7 @@ class GameEngine:
                 is_last_card_of_game = all(len(current.hand) == 0 for current in self.players)
                 if not is_last_card_of_game:
                     player.add_sweep()
+                    sweep_scored = True
 
             self.last_capturer_idx = player_idx
         else:
@@ -144,8 +151,20 @@ class GameEngine:
         if all(len(current.hand) == 0 for current in self.players):
             if self.num_players == 2 and self.deck_remaining:
                 self.restock_cards()
+                restocked = True
             else:
                 self.end_game()
+
+        self.last_move_result = {
+            "player_idx": player_idx,
+            "player_name": player.name,
+            "played_card": card,
+            "captured_cards": captured_combo.copy(),
+            "sweep_scored": sweep_scored,
+            "restocked": restocked,
+            "game_ended": not self.game_active,
+            "table_cards_after": self.table.copy(),
+        }
 
         return True
 
