@@ -709,35 +709,51 @@ class MatchScene(Scene):
         self._draw_glass_panel(renderer, rect, PANEL_COLOR, HIGHLIGHT_COLOR, alpha=198)
         renderer.draw_text("Live", (rect.left + 14, rect.top + 10), size=18, bold=True)
 
-        headers = [("Tot", rect.left + 136), ("Scope", rect.left + 198), ("Carte", rect.left + 264)]
+        headers = [
+            ("Car", rect.left + 92),
+            ("Den", rect.left + 126),
+            ("Pri", rect.left + 160),
+            ("7B", rect.left + 194),
+            ("Scp", rect.left + 228),
+            ("TOT", rect.left + 286),
+        ]
         for label, x in headers:
-            renderer.draw_text(label, (x, rect.top + 16), size=14, color=TEXT_DIM_COLOR, align="midtop")
+            renderer.draw_text(label, (x, rect.top + 16), size=13, color=TEXT_DIM_COLOR, align="midtop")
 
         rows = self._get_live_team_rows()
         y = rect.top + 50
         for row in rows:
-            renderer.draw_text(row["label"], (rect.left + 16, y), size=16, color=row["color"], bold=True)
-            renderer.draw_text(str(row["total"]), (rect.left + 136, y), size=16, color=TEXT_COLOR)
-            renderer.draw_text(str(row["sweeps"]), (rect.left + 206, y), size=16, color=TEXT_COLOR, align="midtop")
-            renderer.draw_text(str(row["cards"]), (rect.left + 272, y), size=16, color=TEXT_COLOR, align="midtop")
+            renderer.draw_text(row["label"], (rect.left + 16, y), size=15, color=row["color"], bold=True)
+            renderer.draw_text(str(row["cards"]), (rect.left + 92, y), size=14, color=TEXT_COLOR, align="midtop")
+            renderer.draw_text(str(row["coins"]), (rect.left + 126, y), size=14, color=TEXT_COLOR, align="midtop")
+            renderer.draw_text(str(row["primiera"]), (rect.left + 160, y), size=14, color=TEXT_COLOR, align="midtop")
+            renderer.draw_text(str(row["settebello"]), (rect.left + 194, y), size=14, color=TEXT_COLOR, align="midtop")
+            renderer.draw_text(str(row["sweeps"]), (rect.left + 228, y), size=14, color=TEXT_COLOR, align="midtop")
+            renderer.draw_text(str(row["total"]), (rect.left + 286, y), size=16, color=TEXT_COLOR, bold=True, align="midtop")
             y += 28
 
     def _get_live_team_rows(self):
         rows = []
+        show_final_total = not self.engine.game_active
+
         if self.engine.num_players == 4:
             final_scores = {
                 score["team"]: score
                 for score in ScoringEngine.calculate_final_scores(self.engine.players)
             }
             for team_id in (0, 1):
-                members = [player for player in self.engine.players if player.team == team_id]
+                score = final_scores.get(team_id, {})
+                sweeps_value = score.get("sweeps", 0)
                 rows.append(
                     {
                         "label": "Sq {0}".format(team_id + 1),
                         "color": TEAM_COLORS[team_id],
-                        "total": final_scores.get(team_id, {}).get("total", 0),
-                        "sweeps": sum(player.sweeps for player in members),
-                        "cards": sum(len(player.captured) for player in members),
+                        "cards": score.get("captured_cards", 0),
+                        "coins": score.get("coins", 0),
+                        "primiera": score.get("primiera_value", 0),
+                        "settebello": 1 if score.get("has_settebello") else 0,
+                        "sweeps": sweeps_value,
+                        "total": score.get("total", 0) if show_final_total else sweeps_value,
                     }
                 )
             return rows
@@ -748,13 +764,18 @@ class MatchScene(Scene):
         }
         for player in self.engine.players[:2]:
             team_id = player.id
+            score = player_scores.get(player.name, {})
+            sweeps_value = score.get("sweeps", 0)
             rows.append(
                 {
                     "label": "Sq {0}".format(team_id + 1),
                     "color": TEAM_COLORS[team_id],
-                    "total": player_scores.get(player.name, {}).get("total", 0),
-                    "sweeps": player.sweeps,
-                    "cards": len(player.captured),
+                    "cards": score.get("captured_cards", 0),
+                    "coins": score.get("coins", 0),
+                    "primiera": score.get("primiera_value", 0),
+                    "settebello": 1 if score.get("has_settebello") else 0,
+                    "sweeps": sweeps_value,
+                    "total": score.get("total", 0) if show_final_total else sweeps_value,
                 }
             )
         return rows

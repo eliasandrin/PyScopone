@@ -1,0 +1,83 @@
+PyScopone - Manual Score Trace
+Creato: 2026-03-22 11:13:13
+Inizio partita: modalita 4 giocatori, difficolta adaptive
+
+=== Giocata 1 ===
+Giocatore: AI 2
+Carta giocata: 4♦
+Carte prese: 1♣, 3♥
+Aggiornamento punteggi:
+- Sq 1 | Carte: 1 (+1) | Denari: 1 (+1) | Settebello: 0 (=) | Primiera: 1 (+1) | Scope: 0 (=) | TOT: 3 (+3)
+- Sq 2 | Carte: 0 (=) | Denari: 0 (=) | Settebello: 0 (=) | Primiera: 0 (=) | Scope: 0 (=) | TOT: 0 (=)
+
+=== Giocata 2 ===
+Giocatore: AI 1
+Carta giocata: 1♥
+Carte prese: Nessuna
+Aggiornamento punteggi:
+- Sq 1 | Carte: 1 (=) | Denari: 1 (=) | Settebello: 0 (=) | Primiera: 1 (=) | Scope: 0 (=) | TOT: 3 (=)
+- Sq 2 | Carte: 0 (=) | Denari: 0 (=) | Settebello: 0 (=) | Primiera: 0 (=) | Scope: 0 (=) | TOT: 0 (=)
+
+=== Giocata 3 ===
+Giocatore: Tu
+Carta giocata: 7♥
+Carte prese: 6♠, 1♥
+Aggiornamento punteggi:
+- Sq 1 | Carte: 1 (=) | Denari: 1 (=) | Settebello: 0 (=) | Primiera: 1 (=) | Scope: 0 (=) | TOT: 3 (=)
+- Sq 2 | Carte: 0 (=) | Denari: 0 (=) | Settebello: 0 (=) | Primiera: 0 (=) | Scope: 0 (=) | TOT: 0 (=)
+
+=== Giocata 4 ===
+Giocatore: AI 3
+Carta giocata: 5♣
+Carte prese: 5♦
+Aggiornamento punteggi:
+- Sq 1 | Carte: 1 (=) | Denari: 0 (-1) | Settebello: 0 (=) | Primiera: 1 (=) | Scope: 0 (=) | TOT: 2 (-1)
+- Sq 2 | Carte: 0 (=) | Denari: 0 (=) | Settebello: 0 (=) | Primiera: 0 (=) | Scope: 1 (+1) | TOT: 1 (+1)
+
+=== Giocata 5 ===
+Giocatore: AI 2
+Carta giocata: 8♥
+Carte prese: Nessuna
+Aggiornamento punteggi:
+- Sq 1 | Carte: 1 (=) | Denari: 0 (=) | Settebello: 0 (=) | Primiera: 1 (=) | Scope: 0 (=) | TOT: 2 (=)
+- Sq 2 | Carte: 0 (=) | Denari: 0 (=) | Settebello: 0 (=) | Primiera: 0 (=) | Scope: 1 (=) | TOT: 1 (=)
+
+=== Giocata 6 ===
+Giocatore: AI 1
+Carta giocata: 8♣
+Carte prese: 8♥
+Aggiornamento punteggi:
+- Sq 1 | Carte: 1 (=) | Denari: 0 (=) | Settebello: 0 (=) | Primiera: 1 (=) | Scope: 0 (=) | TOT: 2 (=)
+- Sq 2 | Carte: 0 (=) | Denari: 0 (=) | Settebello: 0 (=) | Primiera: 0 (=) | Scope: 2 (+1) | TOT: 2 (+1)
+
+=== Giocata 7 ===
+Giocatore: Tu
+Carta giocata: 9♦
+Carte prese: Nessuna
+Aggiornamento punteggi:
+- Sq 1 | Carte: 1 (=) | Denari: 0 (=) | Settebello: 0 (=) | Primiera: 1 (=) | Scope: 0 (=) | TOT: 2 (=)
+- Sq 2 | Carte: 0 (=) | Denari: 0 (=) | Settebello: 0 (=) | Primiera: 0 (=) | Scope: 2 (=) | TOT: 2 (=)
+
+=== Giocata 8 ===
+Giocatore: AI 3
+Carta giocata: 9♥
+Carte prese: 9♦
+Aggiornamento punteggi:
+- Sq 1 | Carte: 0 (-1) | Denari: 0 (=) | Settebello: 0 (=) | Primiera: 1 (=) | Scope: 0 (=) | TOT: 1 (-1)
+- Sq 2 | Carte: 0 (=) | Denari: 1 (+1) | Settebello: 0 (=) | Primiera: 0 (=) | Scope: 3 (+1) | TOT: 4 (+2)
+
+=== Giocata 9 ===
+Giocatore: AI 2
+Carta giocata: 8♠
+Carte prese: Nessuna
+Aggiornamento punteggi:
+- Sq 1 | Carte: 0 (=) | Denari: 0 (=) | Settebello: 0 (=) | Primiera: 1 (=) | Scope: 0 (=) | TOT: 1 (=)
+- Sq 2 | Carte: 0 (=) | Denari: 1 (=) | Settebello: 0 (=) | Primiera: 0 (=) | Scope: 3 (=) | TOT: 4 (=)
+
+=== Giocata 10 ===
+Giocatore: AI 1
+Carta giocata: 4♥
+Carte prese: Nessuna
+Aggiornamento punteggi:
+- Sq 1 | Carte: 0 (=) | Denari: 0 (=) | Settebello: 0 (=) | Primiera: 1 (=) | Scope: 0 (=) | TOT: 1 (=)
+- Sq 2 | Carte: 0 (=) | Denari: 1 (=) | Settebello: 0 (=) | Primiera: 0 (=) | Scope: 3 (=) | TOT: 4 (=)
