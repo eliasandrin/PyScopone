@@ -155,6 +155,8 @@ class AnimationManager:
                 animation.on_complete()
 
     def render(self, renderer) -> None:
+        # Hard cleanup guard: completed tweens must never be rendered again.
+        self.animations = [animation for animation in self.animations if not animation.completed]
         for animation in sorted(self.animations, key=lambda item: item.layer):
             if animation.shadow:
                 renderer.draw_card_shadow(
@@ -167,4 +169,5 @@ class AnimationManager:
                 animation.get_rect(),
                 face_up=animation.face_up,
                 angle=animation.get_angle(),
+                is_animating=True,
             )

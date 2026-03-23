@@ -73,6 +73,7 @@ class MatchScene(Scene):
         self.capture_pile_targets = {}
         self.capture_pile_rects = {}
         self.capture_pile_bump = {0: 0.0, 1: 0.0}
+        self.visual_capture_counts = {0: 0, 1: 0}
         self.last_layout = None
         self.deal_sequence_pending = False
 
@@ -100,6 +101,7 @@ class MatchScene(Scene):
         self.capture_pile_targets = {}
         self.capture_pile_rects = {}
         self.capture_pile_bump = {0: 0.0, 1: 0.0}
+        self.visual_capture_counts = {0: 0, 1: 0}
         self.hidden_hand_cards = dict((player.id, set(player.hand)) for player in self.engine.players)
         self.hidden_table_cards = set(self.engine.table)
         self.deal_sequence_pending = True
@@ -203,6 +205,7 @@ class MatchScene(Scene):
         self.capture_pile_targets = {}
         self.capture_pile_rects = {}
         self.capture_pile_bump = {0: 0.0, 1: 0.0}
+        self.visual_capture_counts = {0: 0, 1: 0}
         self.last_layout = None
         self.engine = None
         self.app.show_setup()
@@ -366,6 +369,8 @@ class MatchScene(Scene):
         def handle_complete():
             remaining["count"] -= 1
             if remaining["count"] <= 0:
+                # Update visual pile state only when the full capture animation has landed.
+                self.visual_capture_counts[team_id] = self.visual_capture_counts.get(team_id, 0) + len(cards_to_collect)
                 self.app.audio.play("capture")
                 self.capture_pile_bump[team_id] = CAPTURE_PILE_BUMP_DURATION
                 self._after_move_animations(move_result)
@@ -1288,6 +1293,10 @@ class MatchScene(Scene):
         small_card_size = self.last_layout["small_card_size"]
         card_back = self.app.assets.get_card_back_surface(small_card_size)
         for team_id in (0, 1):
+            captured_count = self.visual_capture_counts.get(team_id, 0)
+            if captured_count <= 0:
+                continue
+
             pile_rect = self.capture_pile_rects.get(team_id)
             if pile_rect is None:
                 continue
@@ -1307,7 +1316,6 @@ class MatchScene(Scene):
                 pile_surface = pygame.transform.smoothscale(pile_surface, bumped_size)
                 render_rect = pile_surface.get_rect(center=render_rect.center)
 
-            captured_count = self._get_team_captured_count(team_id)
             stack_layers = max(0, captured_count // CAPTURE_PILE_STACK_STEP)
             for layer in range(stack_layers, -1, -1):
                 layer_pos = (render_rect.x + (layer * -1), render_rect.y + (layer * -2))
@@ -1324,13 +1332,6 @@ class MatchScene(Scene):
                 bold=True,
                 align="midtop" if label_y >= render_rect.bottom else "midbottom",
             )
-
-    def _get_team_captured_count(self, team_id: int) -> int:
-        if self.engine.num_players == 4:
-            return sum(len(player.captured) for player in self.engine.players if player.team == team_id)
-
-        player = self.engine.players[team_id] if team_id < len(self.engine.players) else None
-        return len(player.captured) if player is not None else 0
 
     def _get_capture_team_id(self, player_id: int) -> int:
         player = self.engine.players[player_id]
