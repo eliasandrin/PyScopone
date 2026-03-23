@@ -1,5 +1,6 @@
 """Scopone scoring and capture utilities."""
 
+from itertools import combinations
 from typing import Dict, List
 
 from scopone.config.game import (
@@ -13,24 +14,44 @@ from scopone.config.game import (
 from scopone.types import Card
 
 
+PRIMIERA_SUITS = ("Denari", "Coppe", "Bastoni", "Spade")
+
+
 class ScoringEngine:
     """Manages scoring calculations and capture discovery."""
 
     @staticmethod
-    def calculate_primiera(cards_list):
-        suit_scores = {"Denari": 0, "Coppe": 0, "Bastoni": 0, "Spade": 0}
+    def calculate_primiera(cards_list: List[Card]) -> int:
+        """Calculate the primiera value for a captured card collection.
+
+        Args:
+            cards_list: Captured cards to evaluate.
+
+        Returns:
+            The total primiera value obtained from the best card of each suit.
+        """
+        best_by_suit = dict((suit, 0) for suit in PRIMIERA_SUITS)
+        primiera_values = VALORI_PRIMIERA
 
         for value, suit in cards_list:
-            primiera_value = VALORI_PRIMIERA.get(value, 0)
-            if primiera_value > suit_scores[suit]:
-                suit_scores[suit] = primiera_value
+            primiera_value = primiera_values.get(value, 0)
+            if primiera_value > best_by_suit[suit]:
+                best_by_suit[suit] = primiera_value
 
-        return sum(suit_scores.values())
+        return sum(best_by_suit.values())
 
     @staticmethod
-    def find_captures(card, table_cards):
-        from itertools import combinations
+    def find_captures(card: Card, table_cards: List[Card]) -> List[List[Card]]:
+        """Return all legal captures for a played card.
 
+        Args:
+            card: Card being played.
+            table_cards: Cards currently on the table.
+
+        Returns:
+            A list of capture combinations. If no capture is available, returns
+            a single empty combination.
+        """
         card_value = card[0]
 
         single_captures = [table_card for table_card in table_cards if table_card[0] == card_value]
@@ -47,117 +68,201 @@ class ScoringEngine:
 
     @staticmethod
     def calculate_player_score(player) -> dict:
-        captured_count = len(player.captured)
-        coins_count = player.count_coins()
-        has_settebello = player.has_settebello()
-        primiera_value = ScoringEngine.calculate_primiera(player.captured)
+        """Build the standardized score payload for a single player.
 
-        sweeps_points = player.sweeps * POINTS_PER_SWEEP
-        points = {
-            "cards": 0,
-            "coins": 0,
-            "settebello": POINTS_FOR_SETTEBELLO if has_settebello else 0,
-            "primiera": 0,
-            "sweeps": sweeps_points,
-        }
+        Args:
+            player: Player whose captured cards and sweeps must be evaluated.
 
-        return {
-            "player": player.name,
-            "points": points,
-            "primiera_value": primiera_value,
-            "total": sum(points.values()),
-            "captured_cards": captured_count,
-            "sweeps": player.sweeps,
-            "coins": coins_count,
-            "has_settebello": has_settebello,
-        }
+        Returns:
+            A standardized score dictionary with legacy compatibility aliases.
+        """
+        raw_stats = ScoringEngine._aggregate_player_stats(player)
+        return ScoringEngine._build_score_entry(raw_stats)
 
     @staticmethod
-    def calculate_final_scores(players):
+    def calculate_final_scores(players) -> List[dict]:
+        """Calculate final scores for either solo or team matches.
+
+        Args:
+            players: Players taking part in the current match.
+
+        Returns:
+            A list of score payloads sorted by total score descending.
+        """
         if len(players) == 4 and all(hasattr(player, "team") and player.team is not None for player in players):
             return ScoringEngine._calculate_team_scores(players)
         return ScoringEngine._calculate_individual_scores(players)
 
     @staticmethod
-    def _calculate_individual_scores(players):
-        final_scores = [ScoringEngine.calculate_player_score(player) for player in players]
+    def _aggregate_player_stats(player) -> dict:
+        """Aggregate raw captured statistics for a player.
 
-        ScoringEngine._apply_unique_highest_bonus(final_scores, "captured_cards", "cards", POINTS_FOR_MOST_CARDS)
-        ScoringEngine._apply_unique_highest_bonus(final_scores, "coins", "coins", POINTS_FOR_MOST_COINS)
-        ScoringEngine._apply_unique_highest_bonus(final_scores, "primiera_value", "primiera", POINTS_FOR_PRIMIERA)
+        Args:
+            player: Player to summarize.
 
-        final_scores.sort(key=lambda score: score["total"], reverse=True)
-        return final_scores
-
-    @staticmethod
-    def _calculate_team_scores(players):
-        team_scores = {
-            0: {"players": [], "primiera": 0, "cards": 0, "sweeps": 0, "settebello": False},
-            1: {"players": [], "primiera": 0, "cards": 0, "sweeps": 0, "settebello": False},
+        Returns:
+            A raw stats dictionary independent from bonus assignment.
+        """
+        captured_cards = list(player.captured)
+        team_id = player.team if getattr(player, "team", None) is not None else player.id
+        return {
+            "entity_id": player.id,
+            "team_id": team_id,
+            "player": player.name,
+            "members": [player.name],
+            "captured_cards": len(captured_cards),
+            "coins": sum(1 for card in captured_cards if card[1] == "Denari"),
+            "sweeps": player.sweeps,
+            "has_settebello": (7, "Denari") in captured_cards,
+            "primiera_value": ScoringEngine.calculate_primiera(captured_cards),
+            "captured_cards_list": captured_cards,
+            "team": team_id,
         }
 
-        for player in players:
-            team_scores[player.team]["players"].append(player.name)
-            team_scores[player.team]["cards"] += len(player.captured)
-            team_scores[player.team]["sweeps"] += player.sweeps
-            if player.has_settebello():
-                team_scores[player.team]["settebello"] = True
+    @staticmethod
+    def _calculate_individual_scores(players) -> List[dict]:
+        """Calculate scores for solo entities.
 
-        for team in [0, 1]:
-            team_cards = []  # type: List[Card]
-            for player in players:
-                if player.team == team:
-                    team_cards.extend(player.captured)
-            team_scores[team]["primiera"] = ScoringEngine.calculate_primiera(team_cards)
+        Args:
+            players: Players to evaluate independently.
 
-        final_team_scores = []
-        for team_id in [0, 1]:
-            team_data = team_scores[team_id]
-            coins_in_team = sum(player.count_coins() for player in players if player.team == team_id)
-            sweeps_points = team_data["sweeps"] * POINTS_PER_SWEEP
-            total = 0
-            if team_data["settebello"]:
-                total += POINTS_FOR_SETTEBELLO
-            total += sweeps_points
-
-            final_team_scores.append(
-                {
-                    "team": team_id,
-                    "player": f"Team {team_id + 1}",
-                    "members": team_data["players"],
-                    "captured_cards": team_data["cards"],
-                    "coins": coins_in_team,
-                    "sweeps": team_data["sweeps"],
-                    "primiera_value": team_data["primiera"],
-                    "has_settebello": team_data["settebello"],
-                    "total": total,
-                    "points": {
-                        "cards": 0,
-                        "coins": 0,
-                        "settebello": POINTS_FOR_SETTEBELLO if team_data["settebello"] else 0,
-                        "primiera": 0,
-                        "sweeps": sweeps_points,
-                    },
-                }
-            )
-
-        ScoringEngine._apply_unique_highest_bonus(final_team_scores, "captured_cards", "cards", POINTS_FOR_MOST_CARDS)
-        ScoringEngine._apply_unique_highest_bonus(final_team_scores, "coins", "coins", POINTS_FOR_MOST_COINS)
-        ScoringEngine._apply_unique_highest_bonus(final_team_scores, "primiera_value", "primiera", POINTS_FOR_PRIMIERA)
-
-        final_team_scores.sort(key=lambda score: score["total"], reverse=True)
-        return final_team_scores
+        Returns:
+            Standardized score entries sorted by total score.
+        """
+        final_scores = [ScoringEngine._build_score_entry(ScoringEngine._aggregate_player_stats(player)) for player in players]
+        ScoringEngine._apply_standard_bonuses(final_scores)
+        return ScoringEngine._sort_scores(final_scores)
 
     @staticmethod
-    def get_game_winners(final_scores):
+    def _calculate_team_scores(players) -> List[dict]:
+        """Calculate scores for team entities by merging player raw stats.
+
+        Args:
+            players: Players participating in a team match.
+
+        Returns:
+            Standardized team score entries sorted by total score.
+        """
+        player_stats = [ScoringEngine._aggregate_player_stats(player) for player in players]
+        team_stats = {}  # type: Dict[int, dict]
+
+        for raw_stats in player_stats:
+            team_id = raw_stats["team_id"]
+            existing = team_stats.get(team_id)
+            if existing is None:
+                team_stats[team_id] = {
+                    "entity_id": team_id,
+                    "team_id": team_id,
+                    "team": team_id,
+                    "player": "Team {0}".format(team_id + 1),
+                    "members": list(raw_stats["members"]),
+                    "captured_cards": raw_stats["captured_cards"],
+                    "coins": raw_stats["coins"],
+                    "sweeps": raw_stats["sweeps"],
+                    "has_settebello": raw_stats["has_settebello"],
+                    "captured_cards_list": list(raw_stats["captured_cards_list"]),
+                }
+                continue
+
+            existing["members"].extend(raw_stats["members"])
+            existing["captured_cards"] += raw_stats["captured_cards"]
+            existing["coins"] += raw_stats["coins"]
+            existing["sweeps"] += raw_stats["sweeps"]
+            existing["has_settebello"] = existing["has_settebello"] or raw_stats["has_settebello"]
+            existing["captured_cards_list"].extend(raw_stats["captured_cards_list"])
+
+        final_scores = []
+        for team_id in sorted(team_stats.keys()):
+            raw_stats = team_stats[team_id]
+            raw_stats["primiera_value"] = ScoringEngine.calculate_primiera(raw_stats["captured_cards_list"])
+            final_scores.append(ScoringEngine._build_score_entry(raw_stats))
+
+        ScoringEngine._apply_standard_bonuses(final_scores)
+        return ScoringEngine._sort_scores(final_scores)
+
+    @staticmethod
+    def get_game_winners(final_scores: List[dict]) -> List[str]:
+        """Return the names of the winners for the supplied scoreboard.
+
+        Args:
+            final_scores: Final score entries sorted descending.
+
+        Returns:
+            The list of winners. Multiple entries indicate a tie.
+        """
         if not final_scores:
             return []
 
-        highest_score = final_scores[0]["total"]
-        return [score["player"] for score in final_scores if score["total"] == highest_score]
+        highest_score = final_scores[0]["total_score"]
+        return [score["player"] for score in final_scores if score["total_score"] == highest_score]
 
     @staticmethod
-    def _apply_unique_highest_bonus(scores, value_key: str, point_key: str, points_award: int) -> None:
+    def _build_score_entry(raw_stats: dict) -> dict:
+        """Convert raw stats into the standardized score payload.
+
+        Args:
+            raw_stats: Raw aggregated statistics for one scoring entity.
+
+        Returns:
+            A standardized score dictionary plus legacy aliases.
+        """
+        points_breakdown = {
+            "settebello": POINTS_FOR_SETTEBELLO if raw_stats["has_settebello"] else 0,
+            "sweeps": raw_stats["sweeps"] * POINTS_PER_SWEEP,
+        }
+        bonuses = {
+            "cards": 0,
+            "coins": 0,
+            "primiera": 0,
+        }
+        legacy_points = {
+            "cards": 0,
+            "coins": 0,
+            "settebello": points_breakdown["settebello"],
+            "primiera": 0,
+            "sweeps": points_breakdown["sweeps"],
+        }
+        total_score = sum(points_breakdown.values()) + sum(bonuses.values())
+
+        return {
+            "entity_id": raw_stats["entity_id"],
+            "team_id": raw_stats["team_id"],
+            "player": raw_stats["player"],
+            "members": list(raw_stats["members"]),
+            "captured_cards": raw_stats["captured_cards"],
+            "coins": raw_stats["coins"],
+            "sweeps": raw_stats["sweeps"],
+            "has_settebello": raw_stats["has_settebello"],
+            "primiera_value": raw_stats["primiera_value"],
+            "points_breakdown": points_breakdown,
+            "bonuses": bonuses,
+            "total_score": total_score,
+            "team": raw_stats["team"],
+            "points": legacy_points,
+            "total": total_score,
+        }
+
+    @staticmethod
+    def _apply_standard_bonuses(scores: List[dict]) -> None:
+        """Apply the unique-highest bonuses defined by the base ruleset.
+
+        Args:
+            scores: Score entries to mutate in-place.
+        """
+        ScoringEngine._apply_unique_highest_bonus(scores, "captured_cards", "cards", POINTS_FOR_MOST_CARDS)
+        ScoringEngine._apply_unique_highest_bonus(scores, "coins", "coins", POINTS_FOR_MOST_COINS)
+        ScoringEngine._apply_unique_highest_bonus(scores, "primiera_value", "primiera", POINTS_FOR_PRIMIERA)
+
+    @staticmethod
+    def _apply_unique_highest_bonus(scores: List[dict], value_key: str, bonus_key: str, points_award: int) -> None:
+        """Award a bonus if exactly one entity owns the highest raw value.
+
+        Args:
+            scores: Score entries to update.
+            value_key: Raw metric used for comparison.
+            bonus_key: Bonus bucket to mutate when awarded.
+            points_award: Points to assign to the unique winner.
+        """
         if not scores:
             return
 
@@ -167,5 +272,21 @@ class ScoringEngine:
             return
 
         winner_index = values.index(highest_value)
-        scores[winner_index]["points"][point_key] = points_award
-        scores[winner_index]["total"] += points_award
+        winner = scores[winner_index]
+        winner["bonuses"][bonus_key] = points_award
+        winner["points"][bonus_key] = points_award
+        winner["total_score"] += points_award
+        winner["total"] = winner["total_score"]
+
+    @staticmethod
+    def _sort_scores(scores: List[dict]) -> List[dict]:
+        """Sort scores descending by total score.
+
+        Args:
+            scores: Score entries to sort.
+
+        Returns:
+            The sorted score list.
+        """
+        scores.sort(key=lambda score: score["total_score"], reverse=True)
+        return scores
