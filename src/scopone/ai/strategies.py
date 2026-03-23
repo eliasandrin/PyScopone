@@ -73,7 +73,7 @@ class NormalAI(AIStrategy):
                     best_card = card
 
         if best_card is not None:
-            self._set_reason("scelgo la presa con combinazione piu vantaggiosa")
+            self._set_reason("cattura: scelgo la presa con combinazione piu vantaggiosa")
             return best_card
 
         chosen = max(hand, key=lambda item: item[0])
@@ -297,11 +297,16 @@ class ExpertAI(AIStrategy):
         return scopa_cards / len(opponent_candidates)
 
 
+class AdaptiveAI(ExpertAI):
+    """Backward-compatible alias for the former adaptive strategy name."""
+
+
 def get_ai_strategy(difficulty: str = "normale") -> AIStrategy:
     strategies = {
         "divertimento": EasyAI,
         "normale": NormalAI,
         "esperto": ExpertAI,
+        "adaptive": ExpertAI,
     }
     selected_difficulty = difficulty if difficulty in strategies else "normale"
     return strategies[selected_difficulty](selected_difficulty)

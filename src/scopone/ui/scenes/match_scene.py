@@ -1,9 +1,8 @@
 import pygame
 
-from scopone.config.game import DEFAULT_PLAYER_NAMES, INITIAL_HAND_CARDS, MODE_QUICK, MODE_TOURNAMENT, SIMBOLI, TARGET_SCORE_TOURNAMENT
+from scopone.config.game import DEFAULT_PLAYER_NAMES, MODE_QUICK, MODE_TOURNAMENT, SIMBOLI, TARGET_SCORE_TOURNAMENT
 from scopone.config.ui import (
     CARD_SIZE_HAND,
-    CARD_SIZE_SMALL,
     CARD_SIZE_TABLE,
     FONT_NAME,
     HIGHLIGHT_COLOR,
@@ -16,8 +15,9 @@ from scopone.engine.game_engine import GameEngine
 from scopone.engine.scoring import ScoringEngine
 from scopone.ui.animation import AnimationManager, CardTween
 from scopone.ui.backgrounds import draw_prismatic_background
-from scopone.ui.board_view import RenderBoard
+from scopone.ui.board_view import BoardView, RenderBoard
 from scopone.ui.match_coordinator import MatchCoordinator
+from scopone.ui.round_overlay_manager import RoundOverlayManager
 from scopone.ui.scene_manager import Scene
 
 
@@ -40,7 +40,6 @@ CAPTURE_PILE_GAP = 40
 CAPTURE_PILE_STACK_STEP = 3
 CAPTURE_PILE_BUMP_DURATION = 0.10
 CAPTURE_PILE_BUMP_SCALE = 1.05
-ROUND_OVERLAY_BLINK_MS = 520
 
 
 class MatchScene(Scene):
@@ -73,11 +72,8 @@ class MatchScene(Scene):
         self.capture_pile_bump = {0: 0.0, 1: 0.0}
         self.last_layout = None
         self.deal_sequence_pending = False
-        self.round_end_overlay_active = False
-        self.round_end_overlay_rows = []
-        self.round_end_overlay_result = {}
-        self.round_end_prompt_visible = True
-        self.round_end_prompt_timer = 0.0
+        self.board_view = BoardView(self)
+        self.round_overlay = RoundOverlayManager(self)
         self.coordinator = MatchCoordinator(self.app, self.engine, self)
 
         self._start_new_game()
@@ -107,11 +103,7 @@ class MatchScene(Scene):
         self.capture_pile_targets = {}
         self.capture_pile_rects = {}
         self.capture_pile_bump = {0: 0.0, 1: 0.0}
-        self.round_end_overlay_active = False
-        self.round_end_overlay_rows = []
-        self.round_end_overlay_result = {}
-        self.round_end_prompt_visible = True
-        self.round_end_prompt_timer = 0.0
+        self.round_overlay.reset()
         self.render_board = RenderBoard.from_engine(self.engine)
         self.deal_sequence_pending = True
         self.coordinator.bind_engine(self.engine)
@@ -126,7 +118,7 @@ class MatchScene(Scene):
             return
 
         if event.type == pygame.KEYDOWN:
-            if self.round_end_overlay_active and event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+            if self.round_overlay.active and event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
                 self._confirm_round_end_overlay()
                 return
             if event.key == pygame.K_ESCAPE:
@@ -167,7 +159,7 @@ class MatchScene(Scene):
             self.menu_open = not self.menu_open
             return
 
-        if self.round_end_overlay_active:
+        if self.round_overlay.active:
             self._confirm_round_end_overlay()
             return
 
@@ -241,11 +233,7 @@ class MatchScene(Scene):
         for team_id in list(self.capture_pile_bump.keys()):
             self.capture_pile_bump[team_id] = max(0.0, self.capture_pile_bump[team_id] - dt)
 
-        if self.round_end_overlay_active:
-            self.round_end_prompt_timer += dt * 1000.0
-            if self.round_end_prompt_timer >= ROUND_OVERLAY_BLINK_MS:
-                self.round_end_prompt_visible = not self.round_end_prompt_visible
-                self.round_end_prompt_timer = 0.0
+        self.round_overlay.update(dt)
 
         self.coordinator.update(dt)
 
@@ -253,24 +241,14 @@ class MatchScene(Scene):
         if self.engine is None:
             return
 
-        self.round_end_overlay_active = True
-        self.round_end_prompt_visible = True
-        self.round_end_prompt_timer = 0.0
-        self.round_end_overlay_result = dict(move_result or {})
-        self.round_end_overlay_rows = self._build_round_overlay_rows(move_result.get("round_scores", []))
+        self.round_overlay.show(move_result)
         self._append_log("Fine smazzata. Premi INVIO per continuare.")
 
     def _confirm_round_end_overlay(self) -> None:
-        if self.engine is None or not self.round_end_overlay_active:
+        if self.engine is None or not self.round_overlay.active:
             return
 
-        move_result = dict(self.round_end_overlay_result)
-
-        self.round_end_overlay_active = False
-        self.round_end_overlay_rows = []
-        self.round_end_overlay_result = {}
-        self.round_end_prompt_visible = True
-        self.round_end_prompt_timer = 0.0
+        move_result = self.round_overlay.consume_result()
 
         if move_result.get("game_ended"):
             self.coordinator.on_round_confirmed(move_result)
@@ -286,27 +264,6 @@ class MatchScene(Scene):
         self.animations.clear()
         self.deal_sequence_pending = True
         self.coordinator.on_round_confirmed(move_result)
-
-    def _build_round_overlay_rows(self, round_scores):
-        rows = []
-        if not round_scores:
-            return rows
-        ordered_scores = sorted(round_scores, key=lambda score: score.get("team_id", 0))
-        for score in ordered_scores:
-            team_id = score.get("team_id", 0)
-            settebello_str = "Sì" if score.get("has_settebello") else "No"
-            rows.append(
-                "Sq {0}  Carte: {1}  Denari: {2}  Primiera: {3}  Settebello: {4}  Scope: {5}  Totale: {6}".format(
-                    team_id + 1,
-                    score.get("captured_cards", 0),
-                    score.get("coins", 0),
-                    score.get("primiera_value", 0),
-                    settebello_str,
-                    score.get("sweeps", 0),
-                    score.get("total", 0),
-                )
-            )
-        return rows
 
     def _queue_move_sequence(self, player, card, source_rect, captured_cards, captured_rects, move_result) -> None:
         if self.render_board is not None:
@@ -457,7 +414,7 @@ class MatchScene(Scene):
 
         draw_prismatic_background(renderer.surface, variant="game")
         width, height = renderer.surface.get_size()
-        layout = self._calculate_layout(width, height)
+        layout = self.board_view.calculate_layout(width, height)
         self.last_layout = layout
         self.capture_pile_targets = layout["capture_targets"]
         self.capture_pile_rects = layout["capture_piles"]
@@ -477,18 +434,7 @@ class MatchScene(Scene):
         self.menu_button_rect = layout["menu_button"]
         self.audio_button_rect = layout["audio_button"]
 
-        self._draw_table(renderer, layout["table_rect"])
-        self._draw_deck_anchor(renderer, layout["deck_rect"])
-        self._draw_table_cards(renderer, layout["table_rect"])
-        self._draw_live_score_panel(renderer, layout["score_panel"])
-        self._draw_menu_button(renderer, layout["menu_button"], mouse_pos)
-        renderer.draw_audio_toggle(
-            layout["audio_button"],
-            muted=self.app.is_muted,
-            hovered=layout["audio_button"].collidepoint(mouse_pos),
-        )
-        self._draw_players(renderer, layout)
-        self.draw_captured_piles(renderer.surface)
+        self.board_view.render_table_and_players(renderer, layout, mouse_pos)
         self.animations.render(renderer)
 
         if self.log_visible:
@@ -497,8 +443,8 @@ class MatchScene(Scene):
         if self.menu_open:
             self._draw_menu_overlay(renderer, layout["overlay_rect"], mouse_pos)
 
-        if self.round_end_overlay_active:
-            self._draw_round_end_overlay(renderer)
+        if self.round_overlay.active:
+            self.round_overlay.draw(renderer)
 
     def _schedule_deal_sequence(self, layout, include_table: bool, only_player_ids, on_complete=None) -> None:
         assert self.render_board is not None
@@ -594,170 +540,6 @@ class MatchScene(Scene):
                 final_callback()
 
         return callback
-
-    def _calculate_layout(self, width: int, height: int):
-        ui_scale = self._clamp_float(min(width / 1920.0, height / 1080.0), 0.85, 1.4)
-        card_presence_scale = self._clamp_float(ui_scale * 1.14, 0.95, 1.6)
-        hand_card_size = self._scale_card_size(CARD_SIZE_HAND, card_presence_scale, minimum=(100, 150))
-        table_card_size = self._scale_card_size(CARD_SIZE_TABLE, card_presence_scale, minimum=(116, 174))
-        small_card_size = self._scale_card_size(CARD_SIZE_SMALL, card_presence_scale, minimum=(78, 117))
-
-        min_gap = self._clamp(int(min(width, height) * 0.015), 10, 24)
-
-        bottom_label_rect = self._estimate_player_label_rect(0, hand_card_size)
-        top_player_id = 1 if self.engine.num_players == 2 else 2
-        top_label_rect_est = self._estimate_player_label_rect(top_player_id, hand_card_size)
-        left_label_rect_est = self._estimate_player_label_rect(1, hand_card_size)
-        right_label_rect_est = self._estimate_player_label_rect(3, hand_card_size) if self.engine.num_players == 4 else left_label_rect_est
-
-        bottom_cards_block_h = hand_card_size[1] + 8
-        top_cards_block_h = small_card_size[1] + 2
-        left_cards_block_w = small_card_size[1]
-        right_cards_block_w = small_card_size[1]
-        left_label_block_w = left_label_rect_est.height
-        right_label_block_w = right_label_rect_est.height
-
-        reserve_top = (top_cards_block_h + top_label_rect_est.height + (min_gap * 3))
-        reserve_bottom = (bottom_cards_block_h + bottom_label_rect.height + (min_gap * 3))
-        reserve_left = (left_cards_block_w + left_label_block_w + (min_gap * 3))
-        reserve_right = reserve_left if self.engine.num_players == 2 else (right_cards_block_w + right_label_block_w + (min_gap * 3))
-
-        min_table_width = self._clamp(int(width * 0.38), 520, 980)
-        min_table_height = self._clamp(int(height * 0.30), 220, 540)
-
-        overflow_x = max(0, (reserve_left + reserve_right + min_table_width) - width)
-        overflow_y = max(0, (reserve_top + reserve_bottom + min_table_height) - height)
-
-        if overflow_x:
-            reduce_each = int((overflow_x + 1) / 2)
-            reserve_left = max(min_gap * 2 + left_cards_block_w + left_label_block_w, reserve_left - reduce_each)
-            reserve_right = max(min_gap * 2 + right_cards_block_w + right_label_block_w, reserve_right - reduce_each)
-
-        if overflow_y:
-            reduce_each = int((overflow_y + 1) / 2)
-            reserve_top = max(min_gap * 2 + top_cards_block_h + top_label_rect_est.height, reserve_top - reduce_each)
-            reserve_bottom = max(min_gap * 2 + bottom_cards_block_h + bottom_label_rect.height, reserve_bottom - reduce_each)
-
-        table_rect = pygame.Rect(
-            reserve_left,
-            reserve_top,
-            max(min_table_width, width - reserve_left - reserve_right),
-            max(min_table_height, height - reserve_top - reserve_bottom),
-        )
-
-        score_panel = pygame.Rect(
-            min_gap,
-            min_gap,
-            self._clamp(int(322 * ui_scale), 312, 428),
-            self._clamp(int(132 * ui_scale), 126, 176),
-        )
-        menu_button = pygame.Rect(
-            width - min_gap - self._clamp(int(92 * ui_scale), 90, 124),
-            min_gap,
-            self._clamp(int(92 * ui_scale), 90, 124),
-            self._clamp(int(38 * ui_scale), 36, 50),
-        )
-        audio_button = pygame.Rect(menu_button.left - 44, min_gap + 1, 36, 36)
-
-        available_top_y = table_rect.top
-        gap_top = self._equidistant_gap(available_top_y, top_label_rect_est.height, top_cards_block_h, min_gap)
-        top_player_rect = pygame.Rect(
-            table_rect.left,
-            gap_top,
-            table_rect.width,
-            top_cards_block_h,
-        )
-        top_label_rect = pygame.Rect(
-            table_rect.centerx - (top_label_rect_est.width // 2),
-            top_player_rect.bottom + gap_top,
-            top_label_rect_est.width,
-            top_label_rect_est.height,
-        )
-
-        available_bottom_y = height - table_rect.bottom
-        gap_bottom = self._equidistant_gap(available_bottom_y, bottom_label_rect.height, bottom_cards_block_h, min_gap)
-        bottom_label_rect = pygame.Rect(
-            table_rect.centerx - (bottom_label_rect.width // 2),
-            table_rect.bottom + gap_bottom,
-            bottom_label_rect.width,
-            bottom_label_rect.height,
-        )
-        bottom_player_rect = pygame.Rect(
-            table_rect.left,
-            bottom_label_rect.bottom + gap_bottom,
-            table_rect.width,
-            bottom_cards_block_h,
-        )
-
-        available_left_x = table_rect.left
-        gap_left = self._equidistant_gap(available_left_x, left_label_block_w, left_cards_block_w, min_gap)
-        left_player_rect = pygame.Rect(
-            gap_left,
-            table_rect.centery - (table_rect.height // 2),
-            left_cards_block_w,
-            table_rect.height,
-        )
-        left_label_rect = pygame.Rect(
-            left_player_rect.right + gap_left,
-            table_rect.centery - (left_label_rect_est.width // 2),
-            left_label_block_w,
-            left_label_rect_est.width,
-        )
-
-        available_right_x = width - table_rect.right
-        gap_right = self._equidistant_gap(available_right_x, right_label_block_w, right_cards_block_w, min_gap)
-        right_label_rect = pygame.Rect(
-            table_rect.right + gap_right,
-            table_rect.centery - (right_label_rect_est.width // 2),
-            right_label_block_w,
-            right_label_rect_est.width,
-        )
-        right_player_rect = pygame.Rect(
-            right_label_rect.right + gap_right,
-            table_rect.centery - (table_rect.height // 2),
-            right_cards_block_w,
-            table_rect.height,
-        )
-
-        deck_rect = pygame.Rect(
-            table_rect.right - small_card_size[0] - 22,
-            table_rect.centery - (small_card_size[1] // 2),
-            small_card_size[0],
-            small_card_size[1],
-        )
-        capture_piles = self._build_capture_pile_layout(
-            width,
-            height,
-            bottom_player_rect,
-            top_player_rect,
-            right_player_rect,
-            hand_card_size,
-            small_card_size,
-        )
-        capture_targets = dict((team_id, pile_rect.center) for team_id, pile_rect in capture_piles.items())
-        overlay_rect = pygame.Rect(width // 2 - 340, height // 2 - 180, 680, 360)
-
-        return {
-            "table_rect": table_rect,
-            "deck_rect": deck_rect,
-            "capture_piles": capture_piles,
-            "capture_targets": capture_targets,
-            "top_player_rect": top_player_rect,
-            "bottom_player_rect": bottom_player_rect,
-            "left_player_rect": left_player_rect,
-            "right_player_rect": right_player_rect,
-            "top_label_rect": top_label_rect,
-            "bottom_label_rect": bottom_label_rect,
-            "left_label_rect": left_label_rect,
-            "right_label_rect": right_label_rect,
-            "score_panel": score_panel,
-            "menu_button": menu_button,
-            "audio_button": audio_button,
-            "overlay_rect": overlay_rect,
-            "hand_card_size": hand_card_size,
-            "table_card_size": table_card_size,
-            "small_card_size": small_card_size,
-        }
 
     def _draw_table(self, renderer, rect: pygame.Rect) -> None:
         table_surface = pygame.Surface(rect.size, pygame.SRCALPHA)
@@ -1080,54 +862,6 @@ class MatchScene(Scene):
             row = renderer.draw_text(message, (line_area.left, y), size=15, color=TEXT_DIM_COLOR)
             y = row.bottom + 6
 
-    def _draw_round_end_overlay(self, renderer) -> None:
-        width, height = renderer.surface.get_size()
-        dimmer = pygame.Surface((width, height), pygame.SRCALPHA)
-        dimmer.fill((0, 0, 0, 170))
-        renderer.surface.blit(dimmer, (0, 0))
-
-        overlay_width = self._clamp(int(width * 0.62), 740, 1100)
-        overlay_height = self._clamp(int(height * 0.42), 360, 520)
-        overlay_rect = pygame.Rect(
-            (width - overlay_width) // 2,
-            (height - overlay_height) // 2,
-            overlay_width,
-            overlay_height,
-        )
-        self._draw_glass_panel(renderer, overlay_rect, PANEL_COLOR, HIGHLIGHT_COLOR, alpha=236)
-
-        round_number = max(1, self.engine.round_number)
-        renderer.draw_text(
-            "Fine Smazzata - Round {0}".format(round_number),
-            (overlay_rect.centerx, overlay_rect.top + 26),
-            size=34,
-            color=TEXT_COLOR,
-            bold=True,
-            align="center",
-            font_role="title",
-        )
-
-        y = overlay_rect.top + 84
-        for row_text in self.round_end_overlay_rows:
-            renderer.draw_text(
-                row_text,
-                (overlay_rect.centerx, y),
-                size=23,
-                color=TEXT_DIM_COLOR,
-                align="center",
-            )
-            y += 42
-
-        if self.round_end_prompt_visible:
-            renderer.draw_text(
-                "Premi INVIO per giocare la prossima smazzata",
-                (overlay_rect.centerx, overlay_rect.bottom - 38),
-                size=24,
-                color=TEXT_COLOR,
-                bold=True,
-                align="center",
-            )
-
     def _ensure_log_rect(self, width: int, height: int) -> None:
         if self.log_rect is None:
             self.log_rect = pygame.Rect(width - 388, height - 286, 360, 250)
@@ -1163,36 +897,6 @@ class MatchScene(Scene):
     def _equidistant_gap(self, available_space: int, text_extent: int, cards_extent: int, minimum_gap: int) -> int:
         gap = int((available_space - text_extent - cards_extent) / 3)
         return max(minimum_gap, gap)
-
-    def _estimate_player_label_rect(self, player_id: int, hand_card_size) -> pygame.Rect:
-        player = None
-        for current in self.engine.players:
-            if current.id == player_id:
-                player = current
-                break
-
-        if player is None:
-            label_text = "Giocatore"
-            team_text = "Squadra"
-        else:
-            team_text, _ = self._get_player_team_meta(player)
-            label_text = player.name
-
-        label_scale = self._clamp_float(hand_card_size[0] / float(CARD_SIZE_HAND[0]), 0.95, 1.3)
-        name_size = self._clamp(int(22 * label_scale), 20, 28)
-        team_size = self._clamp(int(16 * label_scale), 15, 21)
-        line_gap = self._clamp(int(5 * label_scale), 4, 8)
-        padding_x = self._clamp(int(20 * label_scale), 18, 28)
-        padding_y = self._clamp(int(13 * label_scale), 12, 20)
-
-        name_font = pygame.font.SysFont(FONT_NAME, name_size, bold=True)
-        team_font = pygame.font.SysFont(FONT_NAME, team_size, bold=False)
-        name_width, name_height = name_font.size(label_text)
-        team_width, team_height = team_font.size(team_text)
-
-        width = max(name_width, team_width) + (padding_x * 2)
-        height = name_height + line_gap + team_height + (padding_y * 2)
-        return pygame.Rect(0, 0, width, height)
 
     def _build_player_label_surface(self, renderer, player_name: str, team_label: str, team_color, current: bool) -> pygame.Surface:
         label_scale = 1.0
@@ -1319,62 +1023,6 @@ class MatchScene(Scene):
         start_y = table_rect.centery - (card_height // 2) - ((total_cards - 1) * spread // 3)
         return pygame.Rect(start_x + (index * spread), start_y + (index * max(3, spread // 2)), card_width, card_height)
 
-    def _build_capture_pile_layout(
-        self,
-        screen_width: int,
-        screen_height: int,
-        bottom_player_rect: pygame.Rect,
-        top_player_rect: pygame.Rect,
-        right_player_rect: pygame.Rect,
-        hand_card_size,
-        small_card_size,
-    ):
-        hand_slots = INITIAL_HAND_CARDS.get(self.engine.num_players, 9)
-        pile_w, pile_h = small_card_size
-        piles = {}
-
-        tu_fixed_centery = bottom_player_rect.centery
-        tu_hand_fixed_left = self._get_fixed_horizontal_hand_left(
-            bottom_player_rect,
-            hand_card_size,
-            hand_slots,
-            spacing_min=40,
-            spacing_max=96,
-        )
-        team1_rect = pygame.Rect(0, 0, pile_w, pile_h)
-        team1_rect.centery = tu_fixed_centery
-        team1_rect.right = tu_hand_fixed_left - CAPTURE_PILE_GAP
-        team1_rect = self._clamp_rect_inside_screen(team1_rect, screen_width, screen_height)
-        piles[0] = team1_rect
-
-        if self.engine.num_players == 4:
-            ai3_fixed_centerx = right_player_rect.centerx
-            ai3_hand_fixed_top = self._get_fixed_vertical_hand_top(
-                right_player_rect,
-                small_card_size,
-                hand_slots,
-            )
-            team2_rect = pygame.Rect(0, 0, pile_h, pile_w)
-            team2_rect.centerx = ai3_fixed_centerx
-            team2_rect.bottom = ai3_hand_fixed_top - CAPTURE_PILE_GAP
-            team2_rect = self._clamp_rect_inside_screen(team2_rect, screen_width, screen_height)
-        else:
-            ai1_fixed_centery = top_player_rect.centery
-            ai1_hand_fixed_right = self._get_fixed_horizontal_hand_right(
-                top_player_rect,
-                small_card_size,
-                hand_slots,
-                spacing_min=22,
-                spacing_max=54,
-            )
-            team2_rect = pygame.Rect(0, 0, pile_w, pile_h)
-            team2_rect.centery = ai1_fixed_centery
-            team2_rect.left = ai1_hand_fixed_right + CAPTURE_PILE_GAP
-            team2_rect = self._clamp_rect_inside_screen(team2_rect, screen_width, screen_height)
-        piles[1] = team2_rect
-
-        return piles
-
     def draw_captured_piles(self, screen) -> None:
         if self.last_layout is None or self.render_board is None:
             return
@@ -1443,33 +1091,6 @@ class MatchScene(Scene):
 
     def _is_vertical_capture_target(self, team_id: int) -> bool:
         return self.engine.num_players == 4 and team_id == 1
-
-    def _get_fixed_horizontal_hand_left(self, rect: pygame.Rect, card_size, slot_count: int, spacing_min: int, spacing_max: int) -> int:
-        card_width = card_size[0]
-        slots = max(1, slot_count)
-        spacing = max(spacing_min, min(spacing_max, (rect.width - card_width) // slots))
-        total_width = card_width + (spacing * (slots - 1))
-        return rect.centerx - (total_width // 2)
-
-    def _get_fixed_horizontal_hand_right(self, rect: pygame.Rect, card_size, slot_count: int, spacing_min: int, spacing_max: int) -> int:
-        card_width = card_size[0]
-        slots = max(1, slot_count)
-        spacing = max(spacing_min, min(spacing_max, (rect.width - card_width) // slots))
-        total_width = card_width + (spacing * (slots - 1))
-        return rect.centerx + (total_width // 2)
-
-    def _get_fixed_vertical_hand_top(self, rect: pygame.Rect, card_size, slot_count: int) -> int:
-        rotated_height = card_size[0]
-        slots = max(1, slot_count)
-        spacing = max(50, min(92, (rect.height - rotated_height) // slots))
-        total_height = rotated_height + (spacing * (slots - 1))
-        return rect.centery - (total_height // 2)
-
-    def _clamp_rect_inside_screen(self, rect: pygame.Rect, width: int, height: int, padding: int = 8) -> pygame.Rect:
-        clamped = rect.copy()
-        clamped.x = max(padding, min(clamped.x, width - clamped.width - padding))
-        clamped.y = max(padding, min(clamped.y, height - clamped.height - padding))
-        return clamped
 
     def _get_default_capture_target(self, table_rect: pygame.Rect, small_card_size) -> pygame.Rect:
         return pygame.Rect(table_rect.right - small_card_size[0], table_rect.top, small_card_size[0], small_card_size[1])

@@ -53,7 +53,7 @@ class MatchCoordinator:
     def can_accept_player_input(self) -> bool:
         if self.engine is None or not self.engine.game_active:
             return False
-        if self.scene.menu_open or self.scene.deal_sequence_pending or self.scene.animations.has_active() or self.scene.round_end_overlay_active:
+        if self.scene.menu_open or self.scene.deal_sequence_pending or self.scene.animations.has_active() or self.scene.round_overlay.active:
             return False
         current_player = self.engine.get_current_player()
         return current_player.is_human and self.state == self.STATE_WAITING_INPUT
@@ -80,7 +80,7 @@ class MatchCoordinator:
         if self.engine is None or self.result_dispatched:
             return
 
-        if self.scene.round_end_overlay_active:
+        if self.scene.round_overlay.active:
             self.state = self.STATE_WAITING_ROUND_CONFIRM
             return
 
