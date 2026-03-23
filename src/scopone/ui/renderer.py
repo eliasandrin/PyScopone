@@ -131,33 +131,42 @@ class Renderer:
             self.draw_card_shadow(rect, alpha=shadow_alpha, offset=(0, 6))
 
         original_card_image = self.assets.get_card_surface(card, source_size, face_up=face_up)
+        content_local_rect = original_card_image.get_bounding_rect()
+        if content_local_rect.width <= 0 or content_local_rect.height <= 0:
+            content_local_rect = original_card_image.get_rect()
+
         blit_rect = rect
+        frame_rect = content_local_rect.move(rect.left, rect.top)
         if normalized_angle:
             rotated_image = pygame.transform.rotate(original_card_image, angle)
             blit_rect = rotated_image.get_rect(center=rect.center)
             self.surface.blit(rotated_image, blit_rect)
+
+            rotated_content_rect = rotated_image.get_bounding_rect()
+            if rotated_content_rect.width <= 0 or rotated_content_rect.height <= 0:
+                rotated_content_rect = rotated_image.get_rect()
+            frame_rect = rotated_content_rect.move(blit_rect.left, blit_rect.top)
         else:
             self.surface.blit(original_card_image, rect)
 
         if face_up and not is_animating:
-            pygame.draw.rect(self.surface, CARD_BORDER_COLOR, blit_rect, width=2, border_radius=12)
-            pygame.draw.rect(self.surface, (246, 250, 255), blit_rect.inflate(-6, -6), width=1, border_radius=10)
+            pygame.draw.rect(self.surface, CARD_BORDER_COLOR, frame_rect, width=2, border_radius=0)
 
             # Add a soft top sheen to improve card readability and depth on high-resolution displays.
-            highlight = pygame.Surface(blit_rect.size, pygame.SRCALPHA)
+            highlight = pygame.Surface(frame_rect.size, pygame.SRCALPHA)
             pygame.draw.ellipse(
                 highlight,
                 (255, 255, 255, 34),
                 pygame.Rect(
-                    int(blit_rect.width * 0.1),
-                    -int(blit_rect.height * 0.22),
-                    int(blit_rect.width * 0.9),
-                    int(blit_rect.height * 0.6),
+                    int(frame_rect.width * 0.1),
+                    -int(frame_rect.height * 0.22),
+                    int(frame_rect.width * 0.9),
+                    int(frame_rect.height * 0.6),
                 ),
             )
-            self.surface.blit(highlight, blit_rect.topleft)
+            self.surface.blit(highlight, frame_rect.topleft)
         elif not is_animating:
-            pygame.draw.rect(self.surface, CARD_BORDER_COLOR, blit_rect, width=2, border_radius=12)
+            pygame.draw.rect(self.surface, CARD_BORDER_COLOR, frame_rect, width=2, border_radius=0)
         return blit_rect
 
     def draw_card_shadow(self, rect, alpha: int = 90, offset=(0, 6)) -> None:

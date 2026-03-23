@@ -1,5 +1,6 @@
 """Asset loading and caching for the Pygame UI."""
 
+import logging
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
@@ -8,6 +9,9 @@ import pygame
 from scopone.config.game import SIMBOLI
 from scopone.config.ui import CARD_BACK_COLOR, CARD_BORDER_COLOR, CARD_FACE_COLOR, FONT_NAME, TEXT_COLOR
 from scopone.types import Card
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class AssetManager:
@@ -44,6 +48,8 @@ class AssetManager:
         self.font_cache = {}  # type: Dict[Tuple[str, int, bool], pygame.font.Font]
         self.surface_cache = {}  # type: Dict[Tuple[str, Tuple[int, int]], pygame.Surface]
         self.base_card_cache = {}  # type: Dict[str, pygame.Surface]
+        self.rendered_card_cache = {}  # type: Dict[Tuple[str, Tuple[int, int], bool], pygame.Surface]
+        self._warned = set()
         self.card_index = self._build_card_index()
         self.atlas_metrics = {}  # type: Dict[str, int]
         self.atlas_surface = self._load_atlas_surface()
@@ -81,6 +87,11 @@ class AssetManager:
                 return loaded
             except pygame.error:
                 continue
+
+        self._warn_once(
+            "atlas-not-found",
+            "Card atlas not found. Falling back to per-card files or generated faces.",
+        )
         return None
 
     def _build_atlas_index(self, atlas_surface: Optional[pygame.Surface]) -> Dict[str, pygame.Rect]:
@@ -153,6 +164,12 @@ class AssetManager:
     def _card_filename(self, value: int, suit: str) -> str:
         return "{0}_{1}.jpg".format(value, suit.lower())
 
+    def _warn_once(self, key: str, message: str) -> None:
+        if key in self._warned:
+            return
+        self._warned.add(key)
+        LOGGER.warning(message)
+
     def get_font(self, size: int, bold: bool = False, role: str = "body") -> pygame.font.Font:
         cache_key = (role, size, bold)
         if cache_key not in self.font_cache:
@@ -200,29 +217,88 @@ class AssetManager:
         self.surface_cache[cache_key] = surface
         return surface
 
-    def get_card(self, suit: str, value: int) -> Optional[pygame.Surface]:
+    def get_card(
+        self,
+        suit: str,
+        value: int,
+        target_size: Optional[Tuple[int, int]] = None,
+        preserve_aspect_ratio: bool = True,
+    ) -> Optional[pygame.Surface]:
         cache_key = self._card_filename(value, suit)
+        if target_size is not None:
+            if target_size[0] <= 0 or target_size[1] <= 0:
+                self._warn_once(
+                    "invalid-target-size",
+                    "Invalid card target size requested. Falling back to source card surface.",
+                )
+                target_size = None
+            else:
+                rendered_key = (cache_key, target_size, preserve_aspect_ratio)
+                cached_rendered = self.rendered_card_cache.get(rendered_key)
+                if cached_rendered is not None:
+                    return cached_rendered
+
         cached = self.base_card_cache.get(cache_key)
-        if cached is not None:
+        if cached is None:
+            atlas_crop = self._get_atlas_card(cache_key)
+            if atlas_crop is not None:
+                cached = atlas_crop
+            else:
+                cached = self._load_card_file(cache_key, suit, value)
+
+            if cached is None:
+                return None
+
+            self.base_card_cache[cache_key] = cached
+
+        if target_size is None:
             return cached
 
-        atlas_crop = self._get_atlas_card(cache_key)
-        if atlas_crop is not None:
-            self.base_card_cache[cache_key] = atlas_crop
-            return atlas_crop
+        rendered = self._render_card_to_target(cached, target_size, preserve_aspect_ratio=preserve_aspect_ratio)
+        self.rendered_card_cache[(cache_key, target_size, preserve_aspect_ratio)] = rendered
+        return rendered
 
-        from_file = self._load_card_file(cache_key, suit, value)
-        if from_file is not None:
-            self.base_card_cache[cache_key] = from_file
-            return from_file
+    def _render_card_to_target(
+        self,
+        source: pygame.Surface,
+        target_size: Tuple[int, int],
+        preserve_aspect_ratio: bool = True,
+    ) -> pygame.Surface:
+        target_w, target_h = target_size
+        source_w, source_h = source.get_size()
 
-        return None
+        if source_w <= 0 or source_h <= 0:
+            return pygame.Surface(target_size, pygame.SRCALPHA)
+
+        if not preserve_aspect_ratio:
+            return pygame.transform.smoothscale(source, target_size)
+
+        scale = min(target_w / float(source_w), target_h / float(source_h))
+        scaled_w = max(1, int(round(source_w * scale)))
+        scaled_h = max(1, int(round(source_h * scale)))
+        scaled = pygame.transform.smoothscale(source, (scaled_w, scaled_h))
+
+        canvas = pygame.Surface(target_size, pygame.SRCALPHA)
+        offset_x = (target_w - scaled_w) // 2
+        offset_y = (target_h - scaled_h) // 2
+        canvas.blit(scaled, (offset_x, offset_y))
+        return canvas
 
     def _load_card_image(self, card: Card, size: Tuple[int, int]) -> pygame.Surface:
         value, suit = card
-        base = self.get_card(suit, value)
+        base = self.get_card(
+            suit,
+            value,
+            target_size=size,
+            preserve_aspect_ratio=True,
+        )
         if base is not None:
-            return pygame.transform.smoothscale(base, size)
+            return base
+
+        self._warn_once(
+            "card-fallback-render",
+            "Card image not found in atlas/files for one or more cards. Using generated fallback rendering.",
+        )
         return self._build_card_fallback(card, size)
 
     def _get_atlas_card(self, cache_key: str) -> Optional[pygame.Surface]:
@@ -235,11 +311,19 @@ class AssetManager:
 
         atlas_rect = self.atlas_surface.get_rect()
         if not atlas_rect.contains(rect):
+            self._warn_once(
+                "atlas-invalid-rect",
+                "Invalid card coordinates detected in atlas index. Falling back to file/generic card rendering.",
+            )
             return None
 
         try:
             return self.atlas_surface.subsurface(rect).copy()
         except ValueError:
+            self._warn_once(
+                "atlas-subsurface-error",
+                "Failed to crop atlas subsurface. Falling back to file/generic card rendering.",
+            )
             return None
 
     def _load_card_file(self, cache_key: str, suit: str, value: int) -> Optional[pygame.Surface]:
