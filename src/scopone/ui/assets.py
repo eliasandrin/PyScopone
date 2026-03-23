@@ -70,6 +70,16 @@ class AssetManager:
         self.surface_cache[cache_key] = surface
         return surface
 
+    def get_card_back_surface(self, size: Tuple[int, int]) -> pygame.Surface:
+        cache_key = ("card-back", size)
+        cached = self.surface_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        surface = self._build_card_back(size)
+        self.surface_cache[cache_key] = surface
+        return surface
+
     def _load_card_image(self, card: Card, size: Tuple[int, int]) -> pygame.Surface:
         value, suit = card
         for candidate in self._card_candidates(value, suit):
@@ -109,6 +119,11 @@ class AssetManager:
         return surface
 
     def _build_card_back(self, size: Tuple[int, int]) -> pygame.Surface:
+        custom_back_path = self.assets_root / "retro carte.png"
+        if custom_back_path.exists():
+            loaded = pygame.image.load(str(custom_back_path)).convert_alpha()
+            return pygame.transform.smoothscale(loaded, size)
+
         surface = pygame.Surface(size, pygame.SRCALPHA)
         surface.fill(CARD_BACK_COLOR)
         pygame.draw.rect(surface, CARD_BORDER_COLOR, surface.get_rect(), width=2, border_radius=10)

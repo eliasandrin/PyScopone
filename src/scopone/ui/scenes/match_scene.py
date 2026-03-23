@@ -1,7 +1,7 @@
 import pygame
 
 from scopone.ai.strategies import get_ai_strategy
-from scopone.config.game import DEFAULT_PLAYER_NAMES, SIMBOLI
+from scopone.config.game import DEFAULT_PLAYER_NAMES, INITIAL_HAND_CARDS, SIMBOLI
 from scopone.config.ui import (
     AI_THINKING_DELAY_MS,
     CARD_SIZE_HAND,
@@ -36,6 +36,10 @@ PLAY_CARD_DURATION = 0.24
 CAPTURE_HOLD_DELAY = 0.65
 CAPTURE_CARD_DURATION = 0.90
 CAPTURE_ACTIVE_RAISE = 20
+CAPTURE_PILE_GAP = 40
+CAPTURE_PILE_STACK_STEP = 3
+CAPTURE_PILE_BUMP_DURATION = 0.10
+CAPTURE_PILE_BUMP_SCALE = 1.05
 
 
 class MatchScene(Scene):
@@ -67,6 +71,8 @@ class MatchScene(Scene):
         self.hidden_table_cards = set()
         self.card_position_map = {"hands": {}, "table": {}}
         self.capture_pile_targets = {}
+        self.capture_pile_rects = {}
+        self.capture_pile_bump = {0: 0.0, 1: 0.0}
         self.last_layout = None
         self.deal_sequence_pending = False
 
@@ -92,6 +98,8 @@ class MatchScene(Scene):
         self.last_layout = None
         self.card_position_map = {"hands": {}, "table": {}}
         self.capture_pile_targets = {}
+        self.capture_pile_rects = {}
+        self.capture_pile_bump = {0: 0.0, 1: 0.0}
         self.hidden_hand_cards = dict((player.id, set(player.hand)) for player in self.engine.players)
         self.hidden_table_cards = set(self.engine.table)
         self.deal_sequence_pending = True
@@ -193,6 +201,8 @@ class MatchScene(Scene):
         self.card_hitboxes = []
         self.card_position_map = {"hands": {}, "table": {}}
         self.capture_pile_targets = {}
+        self.capture_pile_rects = {}
+        self.capture_pile_bump = {0: 0.0, 1: 0.0}
         self.last_layout = None
         self.engine = None
         self.app.show_setup()
@@ -214,6 +224,8 @@ class MatchScene(Scene):
             return
 
         self.animations.update(dt)
+        for team_id in list(self.capture_pile_bump.keys()):
+            self.capture_pile_bump[team_id] = max(0.0, self.capture_pile_bump[team_id] - dt)
         if self.animations.has_active():
             return
 
@@ -344,14 +356,18 @@ class MatchScene(Scene):
         remaining = {"count": len(cards_to_collect)}
         table_card_size = self.last_layout["table_card_size"]
         small_card_size = self.last_layout["small_card_size"]
-        capture_target = self.capture_pile_targets.get(
-            player_id,
-            self._get_default_capture_target(self.last_layout["table_rect"], small_card_size),
+        team_id = self._get_capture_team_id(player_id)
+        capture_center = self.capture_pile_targets.get(
+            team_id,
+            self._get_default_capture_target(self.last_layout["table_rect"], small_card_size).center,
         )
+        vertical_target = self._is_vertical_capture_target(team_id)
 
         def handle_complete():
             remaining["count"] -= 1
             if remaining["count"] <= 0:
+                self.app.audio.play("capture")
+                self.capture_pile_bump[team_id] = CAPTURE_PILE_BUMP_DURATION
                 self._after_move_animations(move_result)
 
         for index, current_card in enumerate(cards_to_collect):
@@ -362,7 +378,8 @@ class MatchScene(Scene):
                     current_card,
                     self._get_table_stack_rect(self.last_layout["table_rect"], index, len(cards_to_collect), table_card_size),
                 )
-            target_rect = capture_target.move(index * 2, index * 2)
+            target_rect = start_rect.copy()
+            target_rect.center = capture_center
             self.animations.add(
                 CardTween(
                     card=current_card,
@@ -371,14 +388,14 @@ class MatchScene(Scene):
                     duration=CAPTURE_CARD_DURATION,
                     face_up=True,
                     start_angle=0,
-                    target_angle=0,
+                    target_angle=90 if vertical_target else 0,
                     delay=CAPTURE_HOLD_DELAY,
-                    on_start=(lambda: self.app.audio.play("capture")) if index == 0 else None,
                     on_complete=handle_complete,
                     layer=5 if index == 0 else 4,
                     easing="ease_out",
                     shadow=index == 0,
                     shadow_alpha=96 if index == 0 else 0,
+                    interpolate_size=False,
                 )
             )
 
@@ -431,6 +448,7 @@ class MatchScene(Scene):
         layout = self._calculate_layout(width, height)
         self.last_layout = layout
         self.capture_pile_targets = layout["capture_targets"]
+        self.capture_pile_rects = layout["capture_piles"]
         self._ensure_log_rect(width, height)
         mouse_pos = pygame.mouse.get_pos()
 
@@ -458,6 +476,7 @@ class MatchScene(Scene):
             hovered=layout["audio_button"].collidepoint(mouse_pos),
         )
         self._draw_players(renderer, layout)
+        self.draw_captured_piles(renderer.surface)
         self.animations.render(renderer)
 
         if self.log_visible:
@@ -677,27 +696,22 @@ class MatchScene(Scene):
             small_card_size[0],
             small_card_size[1],
         )
-        capture_targets = {
-            0: pygame.Rect(bottom_player_rect.left + 18, bottom_label_rect.top - 16, small_card_size[0], small_card_size[1]),
-            1: pygame.Rect(
-                left_player_rect.centerx - (small_card_size[0] // 2),
-                table_rect.bottom - small_card_size[1] - 18,
-                small_card_size[0],
-                small_card_size[1],
-            ),
-            2: pygame.Rect(top_player_rect.left + 18, top_player_rect.top + 6, small_card_size[0], small_card_size[1]),
-            3: pygame.Rect(
-                right_player_rect.centerx - (small_card_size[0] // 2),
-                table_rect.top + 18,
-                small_card_size[0],
-                small_card_size[1],
-            ),
-        }
+        capture_piles = self._build_capture_pile_layout(
+            width,
+            height,
+            bottom_player_rect,
+            top_player_rect,
+            right_player_rect,
+            hand_card_size,
+            small_card_size,
+        )
+        capture_targets = dict((team_id, pile_rect.center) for team_id, pile_rect in capture_piles.items())
         overlay_rect = pygame.Rect(width // 2 - 340, height // 2 - 180, 680, 360)
 
         return {
             "table_rect": table_rect,
             "deck_rect": deck_rect,
+            "capture_piles": capture_piles,
             "capture_targets": capture_targets,
             "top_player_rect": top_player_rect,
             "bottom_player_rect": bottom_player_rect,
@@ -1210,6 +1224,149 @@ class MatchScene(Scene):
         start_x = table_rect.centerx - (card_width // 2) - ((total_cards - 1) * spread // 2)
         start_y = table_rect.centery - (card_height // 2) - ((total_cards - 1) * spread // 3)
         return pygame.Rect(start_x + (index * spread), start_y + (index * max(3, spread // 2)), card_width, card_height)
+
+    def _build_capture_pile_layout(
+        self,
+        screen_width: int,
+        screen_height: int,
+        bottom_player_rect: pygame.Rect,
+        top_player_rect: pygame.Rect,
+        right_player_rect: pygame.Rect,
+        hand_card_size,
+        small_card_size,
+    ):
+        hand_slots = INITIAL_HAND_CARDS.get(self.engine.num_players, 9)
+        pile_w, pile_h = small_card_size
+        piles = {}
+
+        tu_fixed_centery = bottom_player_rect.centery
+        tu_hand_fixed_left = self._get_fixed_horizontal_hand_left(
+            bottom_player_rect,
+            hand_card_size,
+            hand_slots,
+            spacing_min=40,
+            spacing_max=96,
+        )
+        team1_rect = pygame.Rect(0, 0, pile_w, pile_h)
+        team1_rect.centery = tu_fixed_centery
+        team1_rect.right = tu_hand_fixed_left - CAPTURE_PILE_GAP
+        team1_rect = self._clamp_rect_inside_screen(team1_rect, screen_width, screen_height)
+        piles[0] = team1_rect
+
+        if self.engine.num_players == 4:
+            ai3_fixed_centerx = right_player_rect.centerx
+            ai3_hand_fixed_top = self._get_fixed_vertical_hand_top(
+                right_player_rect,
+                small_card_size,
+                hand_slots,
+            )
+            team2_rect = pygame.Rect(0, 0, pile_h, pile_w)
+            team2_rect.centerx = ai3_fixed_centerx
+            team2_rect.bottom = ai3_hand_fixed_top - CAPTURE_PILE_GAP
+            team2_rect = self._clamp_rect_inside_screen(team2_rect, screen_width, screen_height)
+        else:
+            ai1_fixed_centery = top_player_rect.centery
+            ai1_hand_fixed_right = self._get_fixed_horizontal_hand_right(
+                top_player_rect,
+                small_card_size,
+                hand_slots,
+                spacing_min=22,
+                spacing_max=54,
+            )
+            team2_rect = pygame.Rect(0, 0, pile_w, pile_h)
+            team2_rect.centery = ai1_fixed_centery
+            team2_rect.left = ai1_hand_fixed_right + CAPTURE_PILE_GAP
+            team2_rect = self._clamp_rect_inside_screen(team2_rect, screen_width, screen_height)
+        piles[1] = team2_rect
+
+        return piles
+
+    def draw_captured_piles(self, screen) -> None:
+        if self.last_layout is None:
+            return
+
+        small_card_size = self.last_layout["small_card_size"]
+        card_back = self.app.assets.get_card_back_surface(small_card_size)
+        for team_id in (0, 1):
+            pile_rect = self.capture_pile_rects.get(team_id)
+            if pile_rect is None:
+                continue
+
+            pile_surface = card_back
+            if self._is_vertical_capture_target(team_id):
+                pile_surface = pygame.transform.rotate(card_back, 90)
+
+            render_rect = pile_surface.get_rect(center=pile_rect.center)
+            bump_remaining = self.capture_pile_bump.get(team_id, 0.0)
+            if bump_remaining > 0.0:
+                bump_factor = 1.0 + ((CAPTURE_PILE_BUMP_SCALE - 1.0) * (bump_remaining / CAPTURE_PILE_BUMP_DURATION))
+                bumped_size = (
+                    max(1, int(render_rect.width * bump_factor)),
+                    max(1, int(render_rect.height * bump_factor)),
+                )
+                pile_surface = pygame.transform.smoothscale(pile_surface, bumped_size)
+                render_rect = pile_surface.get_rect(center=render_rect.center)
+
+            captured_count = self._get_team_captured_count(team_id)
+            stack_layers = max(0, captured_count // CAPTURE_PILE_STACK_STEP)
+            for layer in range(stack_layers, -1, -1):
+                layer_pos = (render_rect.x + (layer * -1), render_rect.y + (layer * -2))
+                screen.blit(pile_surface, layer_pos)
+
+            label_y = render_rect.bottom + 8
+            if self._is_vertical_capture_target(team_id):
+                label_y = render_rect.top - 20
+            self.app.renderer.draw_text(
+                "Squadra {0}".format(team_id + 1),
+                (render_rect.centerx, label_y),
+                size=16,
+                color=TEAM_COLORS[team_id],
+                bold=True,
+                align="midtop" if label_y >= render_rect.bottom else "midbottom",
+            )
+
+    def _get_team_captured_count(self, team_id: int) -> int:
+        if self.engine.num_players == 4:
+            return sum(len(player.captured) for player in self.engine.players if player.team == team_id)
+
+        player = self.engine.players[team_id] if team_id < len(self.engine.players) else None
+        return len(player.captured) if player is not None else 0
+
+    def _get_capture_team_id(self, player_id: int) -> int:
+        player = self.engine.players[player_id]
+        if self.engine.num_players == 4 and player.team is not None:
+            return player.team
+        return player.id if player.id in (0, 1) else 0
+
+    def _is_vertical_capture_target(self, team_id: int) -> bool:
+        return self.engine.num_players == 4 and team_id == 1
+
+    def _get_fixed_horizontal_hand_left(self, rect: pygame.Rect, card_size, slot_count: int, spacing_min: int, spacing_max: int) -> int:
+        card_width = card_size[0]
+        slots = max(1, slot_count)
+        spacing = max(spacing_min, min(spacing_max, (rect.width - card_width) // slots))
+        total_width = card_width + (spacing * (slots - 1))
+        return rect.centerx - (total_width // 2)
+
+    def _get_fixed_horizontal_hand_right(self, rect: pygame.Rect, card_size, slot_count: int, spacing_min: int, spacing_max: int) -> int:
+        card_width = card_size[0]
+        slots = max(1, slot_count)
+        spacing = max(spacing_min, min(spacing_max, (rect.width - card_width) // slots))
+        total_width = card_width + (spacing * (slots - 1))
+        return rect.centerx + (total_width // 2)
+
+    def _get_fixed_vertical_hand_top(self, rect: pygame.Rect, card_size, slot_count: int) -> int:
+        rotated_height = card_size[0]
+        slots = max(1, slot_count)
+        spacing = max(50, min(92, (rect.height - rotated_height) // slots))
+        total_height = rotated_height + (spacing * (slots - 1))
+        return rect.centery - (total_height // 2)
+
+    def _clamp_rect_inside_screen(self, rect: pygame.Rect, width: int, height: int, padding: int = 8) -> pygame.Rect:
+        clamped = rect.copy()
+        clamped.x = max(padding, min(clamped.x, width - clamped.width - padding))
+        clamped.y = max(padding, min(clamped.y, height - clamped.height - padding))
+        return clamped
 
     def _get_default_capture_target(self, table_rect: pygame.Rect, small_card_size) -> pygame.Rect:
         return pygame.Rect(table_rect.right - small_card_size[0], table_rect.top, small_card_size[0], small_card_size[1])

@@ -39,6 +39,7 @@ class CardTween:
         shadow: bool = False,
         shadow_alpha: int = 90,
         shadow_offset=(0, 6),
+        interpolate_size: bool = True,
     ) -> None:
         self.card = card
         self.start_rect = pygame.Rect(start_rect)
@@ -55,6 +56,7 @@ class CardTween:
         self.shadow = shadow
         self.shadow_alpha = shadow_alpha
         self.shadow_offset = shadow_offset
+        self.interpolate_size = interpolate_size
 
         self.elapsed = 0.0
         self.started = False
@@ -87,11 +89,18 @@ class CardTween:
 
         progress = min(max((self.elapsed - self.delay) / self.duration, 0.0), 1.0)
         progress = _apply_easing(progress, self.easing)
+        if self.interpolate_size:
+            width = round(_lerp(self.start_rect.width, self.target_rect.width, progress))
+            height = round(_lerp(self.start_rect.height, self.target_rect.height, progress))
+        else:
+            width = self.start_rect.width
+            height = self.start_rect.height
+
         return pygame.Rect(
             round(_lerp(self.start_rect.x, self.target_rect.x, progress)),
             round(_lerp(self.start_rect.y, self.target_rect.y, progress)),
-            round(_lerp(self.start_rect.width, self.target_rect.width, progress)),
-            round(_lerp(self.start_rect.height, self.target_rect.height, progress)),
+            width,
+            height,
         )
 
     def get_angle(self) -> int:
