@@ -1,9 +1,7 @@
 import pygame
 
-from scopone.ai.strategies import get_ai_strategy
 from scopone.config.game import DEFAULT_PLAYER_NAMES, INITIAL_HAND_CARDS, SIMBOLI
 from scopone.config.ui import (
-    AI_THINKING_DELAY_MS,
     CARD_SIZE_HAND,
     CARD_SIZE_SMALL,
     CARD_SIZE_TABLE,
@@ -18,6 +16,8 @@ from scopone.engine.game_engine import GameEngine
 from scopone.engine.scoring import ScoringEngine
 from scopone.ui.animation import AnimationManager, CardTween
 from scopone.ui.backgrounds import draw_prismatic_background
+from scopone.ui.board_view import RenderBoard
+from scopone.ui.match_coordinator import MatchCoordinator
 from scopone.ui.scene_manager import Scene
 
 
@@ -43,7 +43,7 @@ CAPTURE_PILE_BUMP_SCALE = 1.05
 
 
 class MatchScene(Scene):
-    """Renders the live match and translates user actions into engine calls."""
+    """Renders the live match and delegates turn-flow orchestration."""
 
     def __init__(self, app, settings: dict) -> None:
         super().__init__(app)
@@ -51,9 +51,6 @@ class MatchScene(Scene):
         self.engine = None
         self.log_messages = []
         self.card_hitboxes = []
-        self.pending_ai_player_id = None
-        self.ai_timer = 0.0
-        self.result_dispatched = False
 
         self.menu_open = False
         self.menu_button_rect = pygame.Rect(0, 0, 0, 0)
@@ -67,15 +64,14 @@ class MatchScene(Scene):
         self.log_header_rect = pygame.Rect(0, 0, 0, 0)
 
         self.animations = AnimationManager()
-        self.hidden_hand_cards = {}
-        self.hidden_table_cards = set()
+        self.render_board = None
         self.card_position_map = {"hands": {}, "table": {}}
         self.capture_pile_targets = {}
         self.capture_pile_rects = {}
         self.capture_pile_bump = {0: 0.0, 1: 0.0}
-        self.visual_capture_counts = {0: 0, 1: 0}
         self.last_layout = None
         self.deal_sequence_pending = False
+        self.coordinator = MatchCoordinator(self.app, self.engine, self)
 
         self._start_new_game()
 
@@ -89,9 +85,6 @@ class MatchScene(Scene):
             "Modalita: {0} giocatori".format(self.settings["num_players"]),
             "Difficolta AI: {0}".format(self.settings["difficulty"]),
         ]
-        self.pending_ai_player_id = None
-        self.ai_timer = 0.0
-        self.result_dispatched = False
         self.menu_open = False
         self.log_visible = False
         self.animations.clear()
@@ -101,10 +94,9 @@ class MatchScene(Scene):
         self.capture_pile_targets = {}
         self.capture_pile_rects = {}
         self.capture_pile_bump = {0: 0.0, 1: 0.0}
-        self.visual_capture_counts = {0: 0, 1: 0}
-        self.hidden_hand_cards = dict((player.id, set(player.hand)) for player in self.engine.players)
-        self.hidden_table_cards = set(self.engine.table)
+        self.render_board = RenderBoard.from_engine(self.engine)
         self.deal_sequence_pending = True
+        self.coordinator.bind_engine(self.engine)
 
     def _append_log(self, message: str) -> None:
         self.log_messages.append(message)
@@ -158,16 +150,12 @@ class MatchScene(Scene):
             self._handle_menu_click(event.pos)
             return
 
-        if self.deal_sequence_pending or self.animations.has_active():
-            return
-
-        current_player = self.engine.get_current_player()
-        if not self.engine.game_active or not current_player.is_human:
+        if not self.coordinator.can_accept_player_input():
             return
 
         for rect, card in reversed(self.card_hitboxes):
             if rect.collidepoint(event.pos):
-                self._play_human_card(card)
+                self.coordinator.on_player_move(card)
                 return
 
     def _handle_menu_click(self, pos) -> None:
@@ -196,18 +184,16 @@ class MatchScene(Scene):
         self.menu_open = False
         self.log_visible = False
         self.log_dragging = False
-        self.pending_ai_player_id = None
-        self.ai_timer = 0.0
-        self.result_dispatched = False
         self.animations.clear()
         self.card_hitboxes = []
         self.card_position_map = {"hands": {}, "table": {}}
         self.capture_pile_targets = {}
         self.capture_pile_rects = {}
         self.capture_pile_bump = {0: 0.0, 1: 0.0}
-        self.visual_capture_counts = {0: 0, 1: 0}
         self.last_layout = None
+        self.render_board = None
         self.engine = None
+        self.coordinator.bind_engine(None)
         self.app.show_setup()
 
     def _cycle_difficulty(self) -> None:
@@ -217,7 +203,7 @@ class MatchScene(Scene):
         self._append_log("Difficolta AI impostata su {0}.".format(self.settings["difficulty"]))
 
     def update(self, dt: float) -> None:
-        if self.engine is None or self.result_dispatched:
+        if self.engine is None:
             return
 
         if self.menu_open:
@@ -229,81 +215,13 @@ class MatchScene(Scene):
         self.animations.update(dt)
         for team_id in list(self.capture_pile_bump.keys()):
             self.capture_pile_bump[team_id] = max(0.0, self.capture_pile_bump[team_id] - dt)
-        if self.animations.has_active():
-            return
-
-        if not self.engine.game_active:
-            self.result_dispatched = True
-            self.app.show_results(self.engine.final_scores, self.settings, self.log_messages)
-            return
-
-        current_player = self.engine.get_current_player()
-        if not current_player.is_ai or not current_player.hand:
-            self.pending_ai_player_id = None
-            self.ai_timer = 0.0
-            return
-
-        if self.pending_ai_player_id != current_player.id:
-            self.pending_ai_player_id = current_player.id
-            self.ai_timer = AI_THINKING_DELAY_MS / 1000.0
-            self._append_log("{0} sta pensando...".format(current_player.name))
-            return
-
-        self.ai_timer -= dt
-        if self.ai_timer <= 0:
-            self._play_ai_turn()
-
-    def _play_human_card(self, card) -> None:
-        assert self.engine is not None
-        current_player = self.engine.get_current_player()
-        source_rect = self._get_hand_card_rect(current_player.id, card)
-        captured_cards = self._preview_captured_cards(card)
-        captured_rects = self._get_table_source_rects(captured_cards)
-        if not self.engine.play_card(current_player.id, card):
-            self._append_log("Mossa non valida.")
-            return
-
-        self._append_log("Tu giochi {0}".format(self._format_card(card)))
-        self.pending_ai_player_id = None
-        self.ai_timer = 0.0
-        self._queue_move_sequence(current_player, card, source_rect, captured_cards, captured_rects, self.engine.last_move_result)
-
-    def _play_ai_turn(self) -> None:
-        assert self.engine is not None
-        current_player = self.engine.get_current_player()
-        strategy = get_ai_strategy(self.settings["difficulty"])
-        selected_card = strategy.choose_card(
-            current_player.hand,
-            self.engine.table,
-            player_scores=self._build_ai_player_scores(current_player),
-            seen_cards=self.engine.seen_cards,
-        )
-        if selected_card is None:
-            return
-
-        source_rect = self._get_hand_card_rect(current_player.id, selected_card)
-        captured_cards = self._preview_captured_cards(selected_card)
-        captured_rects = self._get_table_source_rects(captured_cards)
-        self.engine.play_card(current_player.id, selected_card)
-        self._append_log("{0} gioca {1}".format(current_player.name, self._format_card(selected_card)))
-        self._append_log("AI: {0}".format(strategy.get_last_decision_reason()))
-        self.pending_ai_player_id = None
-        self.ai_timer = 0.0
-        self._queue_move_sequence(current_player, selected_card, source_rect, captured_cards, captured_rects, self.engine.last_move_result)
-
-    def _build_ai_player_scores(self, player) -> dict:
-        team_captured = list(player.captured)
-        if self.engine.num_players == 4 and player.team is not None:
-            team_captured = []
-            for teammate in self.engine.players:
-                if teammate.team == player.team:
-                    team_captured.extend(teammate.captured)
-        return {"team_captured": team_captured}
+        self.coordinator.update(dt)
 
     def _queue_move_sequence(self, player, card, source_rect, captured_cards, captured_rects, move_result) -> None:
-        # Nasconde subitissimo le nuove carte ri-distribuite prima del volo animato della carta giocata.
-        if move_result is not None and move_result.get("restocked"):
-            self._prepare_restock_visibility()
+        if self.render_board is not None:
+            self._remove_render_hand_card(player.id, card)
+            for captured_card in captured_cards:
+                self._remove_render_table_card(captured_card)
 
         if source_rect is None or self.last_layout is None or move_result is None:
             self._after_move_animations(move_result)
@@ -334,10 +252,9 @@ class MatchScene(Scene):
             )
             return
 
-        self.hidden_table_cards.add(card)
         table_rects = self._get_table_card_rects(
             self.last_layout["table_rect"],
-            move_result["table_cards_after"],
+            self.render_board.render_table_cards + [card],
             table_card_size,
         )
         target_rect = table_rects.get(card, self._get_table_stack_rect(self.last_layout["table_rect"], 0, 1, table_card_size))
@@ -357,7 +274,9 @@ class MatchScene(Scene):
         )
 
     def _finish_table_play(self, card, move_result) -> None:
-        self.hidden_table_cards.discard(card)
+        del move_result
+        if self.render_board is not None:
+            self.render_board.render_table_cards.append(card)
         self._after_move_animations(move_result)
 
     def _queue_capture_sequence(self, player_id: int, played_card, captured_cards, captured_rects, played_rect, move_result) -> None:
@@ -383,8 +302,8 @@ class MatchScene(Scene):
         def handle_complete():
             remaining["count"] -= 1
             if remaining["count"] <= 0:
-                # Update visual pile state only when the full capture animation has landed.
-                self.visual_capture_counts[team_id] = self.visual_capture_counts.get(team_id, 0) + len(cards_to_collect)
+                if self.render_board is not None:
+                    self.render_board.ensure_team(team_id).extend(cards_to_collect)
                 self.app.audio.play("capture")
                 self.capture_pile_bump[team_id] = CAPTURE_PILE_BUMP_DURATION
                 self._after_move_animations(move_result)
@@ -419,31 +338,7 @@ class MatchScene(Scene):
             )
 
     def _after_move_animations(self, move_result) -> None:
-        if move_result is None:
-            return
-
-        if move_result.get("restocked") and self.last_layout is not None:
-            self._schedule_deal_sequence(
-                self.last_layout,
-                include_table=False,
-                only_player_ids=[player.id for player in self.engine.players],
-                on_complete=self._finalize_turn_after_animation,
-            )
-            return
-
-        self._finalize_turn_after_animation()
-
-    def _prepare_restock_visibility(self) -> None:
-        for player in self.engine.players:
-            self.hidden_hand_cards.setdefault(player.id, set()).update(player.hand)
-
-    def _finalize_turn_after_animation(self) -> None:
-        if self.engine is None:
-            return
-        if self.engine.game_active:
-            self.engine.next_player()
-        self.pending_ai_player_id = None
-        self.ai_timer = 0.0
+        self.coordinator.on_move_animation_finished(move_result)
 
     def _preview_captured_cards(self, card):
         capture_options = ScoringEngine.find_captures(card, self.engine.table)
@@ -460,6 +355,7 @@ class MatchScene(Scene):
 
     def render(self, renderer) -> None:
         assert self.engine is not None
+        assert self.render_board is not None
 
         draw_prismatic_background(renderer.surface, variant="game")
         width, height = renderer.surface.get_size()
@@ -504,9 +400,13 @@ class MatchScene(Scene):
             self._draw_menu_overlay(renderer, layout["overlay_rect"], mouse_pos)
 
     def _schedule_deal_sequence(self, layout, include_table: bool, only_player_ids, on_complete=None) -> None:
+        assert self.render_board is not None
+
+        self.render_board.sync_from_engine(self.engine)
         deck_rect = layout["deck_rect"]
         reveal_registry = []
         sequence_index = 0
+        cards_to_deal = 0
 
         if include_table:
             table_rects = self._get_table_card_rects(layout["table_rect"], self.engine.table, layout["table_card_size"])
@@ -514,7 +414,9 @@ class MatchScene(Scene):
                 target_rect = table_rects.get(card)
                 if target_rect is None:
                     continue
+                self._remove_render_table_card(card)
                 reveal_registry.append(("table", None, card))
+                cards_to_deal += 1
                 self.animations.add(
                     CardTween(
                         card=card,
@@ -530,7 +432,10 @@ class MatchScene(Scene):
                 )
                 sequence_index += 1
 
-        hand_rect_maps = self._get_all_hand_rect_maps(layout)
+        hand_rect_maps = self._get_all_hand_rect_maps(
+            layout,
+            hand_cards=dict((player.id, list(player.hand)) for player in self.engine.players),
+        )
         player_lookup = dict((player.id, player) for player in self.engine.players)
         ordered_ids = [player.id for player in self.engine.players if player.id in only_player_ids]
         max_cards = 0
@@ -546,7 +451,9 @@ class MatchScene(Scene):
                 target_rect = hand_rect_maps.get(player_id, {}).get(card)
                 if target_rect is None:
                     continue
+                self._remove_render_hand_card(player_id, card)
                 reveal_registry.append(("hand", player_id, card))
+                cards_to_deal += 1
                 self.animations.add(
                     CardTween(
                         card=card,
@@ -564,15 +471,18 @@ class MatchScene(Scene):
                 )
                 sequence_index += 1
 
+        self.render_board.render_deck_count += cards_to_deal
         if not reveal_registry and on_complete is not None:
             on_complete()
 
     def _make_reveal_callback(self, area: str, player_id, card, registry, final_callback):
         def callback():
-            if area == "table":
-                self.hidden_table_cards.discard(card)
-            else:
-                self.hidden_hand_cards.setdefault(player_id, set()).discard(card)
+            if self.render_board is not None:
+                if area == "table":
+                    self.render_board.render_table_cards.append(card)
+                else:
+                    self.render_board.ensure_player(player_id).append(card)
+                self.render_board.render_deck_count = max(0, self.render_board.render_deck_count - 1)
 
             try:
                 registry.remove((area, player_id, card))
@@ -761,11 +671,7 @@ class MatchScene(Scene):
         renderer.draw_text("Tavolo", (rect.centerx, rect.top + 14), size=24, bold=True, align="center")
 
     def _should_draw_deck_anchor(self) -> bool:
-        if self.engine.num_players != 2:
-            return False
-        if self.engine.deck_remaining:
-            return True
-        return any(self.hidden_hand_cards.get(player.id) for player in self.engine.players)
+        return self.engine.num_players == 2 and self.render_board is not None and self.render_board.render_deck_count > 0
 
     def _draw_deck_anchor(self, renderer, deck_rect: pygame.Rect) -> None:
         # Draw the deck anchor only in 2-player mode.
@@ -775,17 +681,14 @@ class MatchScene(Scene):
 
     def _draw_table_cards(self, renderer, table_rect: pygame.Rect) -> None:
         table_card_size = self.last_layout["table_card_size"] if self.last_layout is not None else CARD_SIZE_TABLE
-        rect_map = self._get_table_card_rects(table_rect, self.engine.table, table_card_size)
+        rect_map = self._get_table_card_rects(table_rect, self.render_board.render_table_cards, table_card_size)
         self.card_position_map["table"] = rect_map
 
-        visible_cards = [card for card in self.engine.table if card not in self.hidden_table_cards]
-        if not visible_cards:
+        if not self.render_board.render_table_cards:
             renderer.draw_text("Tavolo vuoto", table_rect.center, size=22, color=TEXT_DIM_COLOR, align="center")
             return
 
-        for card in self.engine.table:
-            if card in self.hidden_table_cards:
-                continue
+        for card in self.render_board.render_table_cards:
             renderer.draw_card(card, rect_map[card], face_up=True)
 
     def _draw_players(self, renderer, layout) -> None:
@@ -808,22 +711,18 @@ class MatchScene(Scene):
 
     def _draw_horizontal_ai_hand(self, renderer, player, rect_map) -> None:
         show_cards = self._is_face_up_player(player)
-        for card in player.hand:
-            if card in self.hidden_hand_cards.get(player.id, set()):
-                continue
+        for card in self.render_board.ensure_player(player.id):
             renderer.draw_card(card, rect_map[card], face_up=show_cards)
 
     def _draw_vertical_ai_hand(self, renderer, player, rect_map, side: str) -> None:
         del side
         show_cards = self._is_face_up_player(player)
         angle = self._get_player_angle(player.id)
-        for card in player.hand:
-            if card in self.hidden_hand_cards.get(player.id, set()):
-                continue
+        for card in self.render_board.ensure_player(player.id):
             renderer.draw_card(card, rect_map[card], face_up=show_cards, angle=angle)
 
     def _draw_human_hand(self, renderer, player, rect_map) -> None:
-        visible_cards = [card for card in player.hand if card not in self.hidden_hand_cards.get(player.id, set())]
+        visible_cards = list(self.render_board.ensure_player(player.id))
         if not visible_cards:
             if self.last_layout is not None:
                 renderer.draw_text("Mano vuota", self.last_layout["bottom_player_rect"].center, size=22, color=TEXT_DIM_COLOR, align="center")
@@ -835,9 +734,7 @@ class MatchScene(Scene):
             and not self.menu_open
             and not self.animations.has_active()
         )
-        for card in player.hand:
-            if card in self.hidden_hand_cards.get(player.id, set()):
-                continue
+        for card in visible_cards:
             card_rect = rect_map[card]
             renderer.draw_card(card, card_rect, face_up=True)
             if current_human_turn:
@@ -1167,17 +1064,18 @@ class MatchScene(Scene):
         surface.blit(team_surface, team_rect)
         return surface
 
-    def _get_all_hand_rect_maps(self, layout):
+    def _get_all_hand_rect_maps(self, layout, hand_cards=None):
         rect_maps = {}
         hand_card_size = layout["hand_card_size"]
         small_card_size = layout["small_card_size"]
         for player in self.engine.players:
+            cards = hand_cards.get(player.id) if hand_cards is not None else self.render_board.ensure_player(player.id)
             side = self._get_player_side(player.id)
             if side == "bottom":
                 current_turn = self.engine.game_active and self.engine.get_current_player().id == player.id and not self.menu_open
                 rect_maps[player.id] = self._get_horizontal_hand_rects(
                     layout["bottom_player_rect"],
-                    player.hand,
+                    cards,
                     hand_card_size,
                     40,
                     96,
@@ -1187,7 +1085,7 @@ class MatchScene(Scene):
             elif side == "top":
                 rect_maps[player.id] = self._get_horizontal_hand_rects(
                     layout["top_player_rect"],
-                    player.hand,
+                    cards,
                     small_card_size,
                     22,
                     54,
@@ -1196,7 +1094,7 @@ class MatchScene(Scene):
                 )
             else:
                 player_rect = layout["left_player_rect"] if side == "left" else layout["right_player_rect"]
-                rect_maps[player.id] = self._get_vertical_hand_rects(player_rect, player.hand, small_card_size)
+                rect_maps[player.id] = self._get_vertical_hand_rects(player_rect, cards, small_card_size)
         return rect_maps
 
     def _get_horizontal_hand_rects(self, rect: pygame.Rect, cards, card_size, spacing_min: int, spacing_max: int, bottom_padding: int, lift: int):
@@ -1306,13 +1204,13 @@ class MatchScene(Scene):
         return piles
 
     def draw_captured_piles(self, screen) -> None:
-        if self.last_layout is None:
+        if self.last_layout is None or self.render_board is None:
             return
 
         small_card_size = self.last_layout["small_card_size"]
         card_back = self.app.assets.get_card_back_surface(small_card_size)
         for team_id in (0, 1):
-            captured_count = self.visual_capture_counts.get(team_id, 0)
+            captured_count = len(self.render_board.ensure_team(team_id))
             if captured_count <= 0:
                 continue
 
@@ -1357,6 +1255,19 @@ class MatchScene(Scene):
         if self.engine.num_players == 4 and player.team is not None:
             return player.team
         return player.id if player.id in (0, 1) else 0
+
+    def _remove_render_hand_card(self, player_id: int, card) -> None:
+        if self.render_board is None:
+            return
+        hand_cards = self.render_board.ensure_player(player_id)
+        if card in hand_cards:
+            hand_cards.remove(card)
+
+    def _remove_render_table_card(self, card) -> None:
+        if self.render_board is None:
+            return
+        if card in self.render_board.render_table_cards:
+            self.render_board.render_table_cards.remove(card)
 
     def _is_vertical_capture_target(self, team_id: int) -> bool:
         return self.engine.num_players == 4 and team_id == 1
