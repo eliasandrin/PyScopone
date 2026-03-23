@@ -7,6 +7,7 @@ from scopone.config.ui import (
     CARD_SIZE_HAND,
     CARD_SIZE_SMALL,
     CARD_SIZE_TABLE,
+    FONT_NAME,
     HIGHLIGHT_COLOR,
     PANEL_ALT_COLOR,
     PANEL_COLOR,
@@ -553,59 +554,122 @@ class MatchScene(Scene):
         table_card_size = self._scale_card_size(CARD_SIZE_TABLE, card_presence_scale, minimum=(116, 174))
         small_card_size = self._scale_card_size(CARD_SIZE_SMALL, card_presence_scale, minimum=(78, 117))
 
-        margin = self._clamp(int(min(width, height) * 0.02), 14, 28)
-        label_lane = self._clamp(int(min(width, height) * 0.06), 48, 64)
-        top_cards_height = self._clamp(max(int(height * 0.1), small_card_size[1] + 20), 96, 144)
-        bottom_cards_height = self._clamp(max(int(height * 0.18), hand_card_size[1] + 26), 168, 246)
-        side_cards_width = self._clamp(max(int(width * 0.145), small_card_size[1] + 22), 150, 238)
+        min_gap = self._clamp(int(min(width, height) * 0.015), 10, 24)
+
+        bottom_label_rect = self._estimate_player_label_rect(0, hand_card_size)
+        top_player_id = 1 if self.engine.num_players == 2 else 2
+        top_label_rect_est = self._estimate_player_label_rect(top_player_id, hand_card_size)
+        left_label_rect_est = self._estimate_player_label_rect(1, hand_card_size)
+        right_label_rect_est = self._estimate_player_label_rect(3, hand_card_size) if self.engine.num_players == 4 else left_label_rect_est
+
+        bottom_cards_block_h = hand_card_size[1] + 8
+        top_cards_block_h = small_card_size[1] + 2
+        left_cards_block_w = small_card_size[1]
+        right_cards_block_w = small_card_size[1]
+        left_label_block_w = left_label_rect_est.height
+        right_label_block_w = right_label_rect_est.height
+
+        reserve_top = (top_cards_block_h + top_label_rect_est.height + (min_gap * 3))
+        reserve_bottom = (bottom_cards_block_h + bottom_label_rect.height + (min_gap * 3))
+        reserve_left = (left_cards_block_w + left_label_block_w + (min_gap * 3))
+        reserve_right = reserve_left if self.engine.num_players == 2 else (right_cards_block_w + right_label_block_w + (min_gap * 3))
+
+        min_table_width = self._clamp(int(width * 0.38), 520, 980)
+        min_table_height = self._clamp(int(height * 0.30), 220, 540)
+
+        overflow_x = max(0, (reserve_left + reserve_right + min_table_width) - width)
+        overflow_y = max(0, (reserve_top + reserve_bottom + min_table_height) - height)
+
+        if overflow_x:
+            reduce_each = int((overflow_x + 1) / 2)
+            reserve_left = max(min_gap * 2 + left_cards_block_w + left_label_block_w, reserve_left - reduce_each)
+            reserve_right = max(min_gap * 2 + right_cards_block_w + right_label_block_w, reserve_right - reduce_each)
+
+        if overflow_y:
+            reduce_each = int((overflow_y + 1) / 2)
+            reserve_top = max(min_gap * 2 + top_cards_block_h + top_label_rect_est.height, reserve_top - reduce_each)
+            reserve_bottom = max(min_gap * 2 + bottom_cards_block_h + bottom_label_rect.height, reserve_bottom - reduce_each)
+
+        table_rect = pygame.Rect(
+            reserve_left,
+            reserve_top,
+            max(min_table_width, width - reserve_left - reserve_right),
+            max(min_table_height, height - reserve_top - reserve_bottom),
+        )
 
         score_panel = pygame.Rect(
-            margin,
-            margin,
+            min_gap,
+            min_gap,
             self._clamp(int(322 * ui_scale), 312, 428),
             self._clamp(int(132 * ui_scale), 126, 176),
         )
         menu_button = pygame.Rect(
-            width - margin - self._clamp(int(92 * ui_scale), 90, 124),
-            margin,
+            width - min_gap - self._clamp(int(92 * ui_scale), 90, 124),
+            min_gap,
             self._clamp(int(92 * ui_scale), 90, 124),
             self._clamp(int(38 * ui_scale), 36, 50),
         )
-        audio_button = pygame.Rect(menu_button.left - 44, margin + 1, 36, 36)
-        top_cards_top = score_panel.bottom + 18
+        audio_button = pygame.Rect(menu_button.left - 44, min_gap + 1, 36, 36)
 
-        horizontal_left = side_cards_width + label_lane + (margin * 2)
-        horizontal_width = width - (horizontal_left * 2)
-        top_player_rect = pygame.Rect(horizontal_left, top_cards_top, horizontal_width, top_cards_height)
-        top_label_rect = pygame.Rect(horizontal_left, top_player_rect.bottom + 8, horizontal_width, 46)
-
-        bottom_player_rect = pygame.Rect(horizontal_left, height - bottom_cards_height - margin, horizontal_width, bottom_cards_height)
-        bottom_label_rect = pygame.Rect(horizontal_left, bottom_player_rect.top - 54, horizontal_width, 46)
-
-        table_rect = pygame.Rect(
-            horizontal_left + 42,
-            top_label_rect.bottom + margin,
-            horizontal_width - 84,
-            bottom_label_rect.top - top_label_rect.bottom - (margin * 2),
+        available_top_y = table_rect.top
+        gap_top = self._equidistant_gap(available_top_y, top_label_rect_est.height, top_cards_block_h, min_gap)
+        top_player_rect = pygame.Rect(
+            table_rect.left,
+            gap_top,
+            table_rect.width,
+            top_cards_block_h,
+        )
+        top_label_rect = pygame.Rect(
+            table_rect.centerx - (top_label_rect_est.width // 2),
+            top_player_rect.bottom + gap_top,
+            top_label_rect_est.width,
+            top_label_rect_est.height,
         )
 
-        left_player_rect = pygame.Rect(margin, table_rect.top, side_cards_width, table_rect.height)
-        left_label_rect = pygame.Rect(left_player_rect.right + 8, table_rect.top, table_rect.left - left_player_rect.right - 16, table_rect.height)
-        right_label_rect = pygame.Rect(table_rect.right + 8, table_rect.top, width - margin - side_cards_width - table_rect.right - 16, table_rect.height)
-        right_player_rect = pygame.Rect(width - side_cards_width - margin, table_rect.top, side_cards_width, table_rect.height)
+        available_bottom_y = height - table_rect.bottom
+        gap_bottom = self._equidistant_gap(available_bottom_y, bottom_label_rect.height, bottom_cards_block_h, min_gap)
+        bottom_label_rect = pygame.Rect(
+            table_rect.centerx - (bottom_label_rect.width // 2),
+            table_rect.bottom + gap_bottom,
+            bottom_label_rect.width,
+            bottom_label_rect.height,
+        )
+        bottom_player_rect = pygame.Rect(
+            table_rect.left,
+            bottom_label_rect.bottom + gap_bottom,
+            table_rect.width,
+            bottom_cards_block_h,
+        )
 
-        for rect in (
-            top_player_rect,
-            top_label_rect,
-            table_rect,
-            left_player_rect,
-            left_label_rect,
-            right_label_rect,
-            right_player_rect,
-            bottom_label_rect,
-            bottom_player_rect,
-        ):
-            rect.move_ip(0, BLOCK_Y_OFFSET)
+        available_left_x = table_rect.left
+        gap_left = self._equidistant_gap(available_left_x, left_label_block_w, left_cards_block_w, min_gap)
+        left_player_rect = pygame.Rect(
+            gap_left,
+            table_rect.centery - (table_rect.height // 2),
+            left_cards_block_w,
+            table_rect.height,
+        )
+        left_label_rect = pygame.Rect(
+            left_player_rect.right + gap_left,
+            table_rect.centery - (left_label_rect_est.width // 2),
+            left_label_block_w,
+            left_label_rect_est.width,
+        )
+
+        available_right_x = width - table_rect.right
+        gap_right = self._equidistant_gap(available_right_x, right_label_block_w, right_cards_block_w, min_gap)
+        right_label_rect = pygame.Rect(
+            table_rect.right + gap_right,
+            table_rect.centery - (right_label_rect_est.width // 2),
+            right_label_block_w,
+            right_label_rect_est.width,
+        )
+        right_player_rect = pygame.Rect(
+            right_label_rect.right + gap_right,
+            table_rect.centery - (table_rect.height // 2),
+            right_cards_block_w,
+            table_rect.height,
+        )
 
         deck_rect = pygame.Rect(
             table_rect.right - small_card_size[0] - 22,
@@ -986,6 +1050,40 @@ class MatchScene(Scene):
             self._clamp(int(base_size[0] * scale), minimum[0], int(base_size[0] * 1.6)),
             self._clamp(int(base_size[1] * scale), minimum[1], int(base_size[1] * 1.6)),
         )
+
+    def _equidistant_gap(self, available_space: int, text_extent: int, cards_extent: int, minimum_gap: int) -> int:
+        gap = int((available_space - text_extent - cards_extent) / 3)
+        return max(minimum_gap, gap)
+
+    def _estimate_player_label_rect(self, player_id: int, hand_card_size) -> pygame.Rect:
+        player = None
+        for current in self.engine.players:
+            if current.id == player_id:
+                player = current
+                break
+
+        if player is None:
+            label_text = "Giocatore"
+            team_text = "Squadra"
+        else:
+            team_text, _ = self._get_player_team_meta(player)
+            label_text = player.name
+
+        label_scale = self._clamp_float(hand_card_size[0] / float(CARD_SIZE_HAND[0]), 0.95, 1.3)
+        name_size = self._clamp(int(22 * label_scale), 20, 28)
+        team_size = self._clamp(int(16 * label_scale), 15, 21)
+        line_gap = self._clamp(int(5 * label_scale), 4, 8)
+        padding_x = self._clamp(int(20 * label_scale), 18, 28)
+        padding_y = self._clamp(int(13 * label_scale), 12, 20)
+
+        name_font = pygame.font.SysFont(FONT_NAME, name_size, bold=True)
+        team_font = pygame.font.SysFont(FONT_NAME, team_size, bold=False)
+        name_width, name_height = name_font.size(label_text)
+        team_width, team_height = team_font.size(team_text)
+
+        width = max(name_width, team_width) + (padding_x * 2)
+        height = name_height + line_gap + team_height + (padding_y * 2)
+        return pygame.Rect(0, 0, width, height)
 
     def _build_player_label_surface(self, renderer, player_name: str, team_label: str, team_color, current: bool) -> pygame.Surface:
         label_scale = 1.0
