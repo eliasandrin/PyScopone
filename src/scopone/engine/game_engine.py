@@ -8,7 +8,10 @@ from scopone.config.game import (
     INITIAL_TABLE_CARDS_BY_MODE,
     MAX_PLAYERS,
     MIN_PLAYERS,
+    MODE_QUICK,
+    MODE_TOURNAMENT,
     SEMI,
+    TARGET_SCORE_TOURNAMENT,
     TEAM_A_PLAYERS,
 )
 from scopone.engine.scoring import ScoringEngine
@@ -19,8 +22,10 @@ from scopone.types import Card
 class GameEngine:
     """Main game engine for Scopone card game."""
 
-    def __init__(self, num_players=4, player_names=None):
+    def __init__(self, num_players=4, player_names=None, game_mode: str = MODE_QUICK):
         self.num_players = min(max(num_players, MIN_PLAYERS), MAX_PLAYERS)
+        self.game_mode = game_mode if game_mode in (MODE_QUICK, MODE_TOURNAMENT) else MODE_QUICK
+        self.target_score = TARGET_SCORE_TOURNAMENT
         self.deck = self._create_deck()  # type: List[Card]
         self.deck_remaining = []  # type: List[Card]
 
@@ -28,15 +33,21 @@ class GameEngine:
         self.table = []  # type: List[Card]
         self.seen_cards = set()  # type: Set[Card]
         self.current_player_idx = 0
+        self.dealer_idx = 0
         self.last_capturer_idx = 0
         self.game_active = False
 
         self.moves_played = []  # type: List[Tuple[str, Card]]
         self.final_scores = []  # type: List[Dict]
+        self.round_scores = []  # type: List[Dict]
+        self.tournament_scores = []  # type: List[Dict]
         self.game_history = []  # type: List[Dict]
         self.last_move_result = None  # type: Optional[Dict]
+        self.round_number = 0
 
         self._initialize_players(player_names)
+        self.dealer_idx = random.randint(0, self.num_players - 1)
+        self.tournament_scores = self._build_empty_session_scores()
 
     def _create_deck(self):
         return [(value, suit) for suit in SEMI for value in range(1, 11)]
@@ -51,16 +62,26 @@ class GameEngine:
                 team = 0 if index in TEAM_A_PLAYERS else 1
             self.players.append(Player(name, index, is_ai=not is_human, is_human=is_human, team=team))
 
-    def reset(self) -> None:
+    def reset(self, preserve_session: bool = False) -> None:
         self.deck = self._create_deck()
         self.deck_remaining = []
         self.table = []
         self.seen_cards = set()
-        self.current_player_idx = random.randint(0, self.num_players - 1)
+        if preserve_session:
+            self.current_player_idx = self.dealer_idx
+        else:
+            self.dealer_idx = random.randint(0, self.num_players - 1)
+            self.current_player_idx = self.dealer_idx
+            self.round_number = 1
+            self.tournament_scores = self._build_empty_session_scores()
         self.last_capturer_idx = 0
         self.game_active = True
         self.moves_played = []
-        self.final_scores = []
+        if not preserve_session:
+            self.final_scores = []
+            self.round_scores = []
+        elif self.game_mode == MODE_TOURNAMENT:
+            self.final_scores = self._clone_scores(self.tournament_scores)
         self.last_move_result = None
 
         for player in self.players:
@@ -125,6 +146,7 @@ class GameEngine:
         captured_combo = []  # type: List[Card]
         sweep_scored = False
         restocked = False
+        round_end_summary = {}
 
         player.remove_from_hand(card)
         self.seen_cards.add(card)
@@ -153,7 +175,7 @@ class GameEngine:
                 self.restock_cards()
                 restocked = True
             else:
-                self.end_game()
+                round_end_summary = self.end_game()
 
         self.last_move_result = {
             "player_idx": player_idx,
@@ -162,8 +184,12 @@ class GameEngine:
             "captured_cards": captured_combo.copy(),
             "sweep_scored": sweep_scored,
             "restocked": restocked,
-            "game_ended": not self.game_active,
-            "table_cards_after": self.table.copy(),
+            "game_ended": round_end_summary.get("session_complete", not self.game_active),
+            "round_ended": round_end_summary.get("round_complete", False),
+            "next_round_started": round_end_summary.get("next_round_started", False),
+            "round_scores": round_end_summary.get("round_scores", []),
+            "tournament_scores": round_end_summary.get("tournament_scores", []),
+            "table_cards_after": round_end_summary.get("table_cards_after", self.table.copy()),
         }
 
         return True
@@ -171,33 +197,178 @@ class GameEngine:
     def next_player(self) -> None:
         self.current_player_idx = (self.current_player_idx - 1) % self.num_players
 
-    def end_game(self) -> None:
+    def end_game(self) -> dict:
+        round_summary = {
+            "round_complete": True,
+            "session_complete": False,
+            "next_round_started": False,
+            "table_cards_after": [],
+            "round_scores": [],
+            "tournament_scores": [],
+        }
+
         if self.table:
             last_player = self.players[self.last_capturer_idx]
             last_player.capture_cards(self.table)
             self.table = []
 
-        self._calculate_final_scores()
-        self.game_active = False
+        self.round_scores = ScoringEngine.calculate_final_scores(self.players)
+        round_summary["round_scores"] = self._clone_scores(self.round_scores)
+        round_summary["table_cards_after"] = self.table.copy()
 
-    def _calculate_final_scores(self) -> None:
-        self.final_scores = ScoringEngine.calculate_final_scores(self.players)
-        winners = ScoringEngine.get_game_winners(self.final_scores)
+        if self.game_mode == MODE_QUICK:
+            self.final_scores = self._clone_scores(self.round_scores)
+            self._record_round_history(self.final_scores, session_complete=True)
+            self.game_active = False
+            round_summary["session_complete"] = True
+            round_summary["tournament_scores"] = self._clone_scores(self.final_scores)
+            return round_summary
+
+        self._accumulate_tournament_scores(self.round_scores)
+        self.final_scores = self._clone_scores(self.tournament_scores)
+        round_summary["tournament_scores"] = self._clone_scores(self.tournament_scores)
+
+        if self._has_tournament_winner():
+            self._record_round_history(self.final_scores, session_complete=True)
+            self.game_active = False
+            round_summary["session_complete"] = True
+            return round_summary
+
+        self._record_round_history(self.round_scores, session_complete=False)
+        self.start_next_round()
+        round_summary["next_round_started"] = True
+        return round_summary
+
+    def start_next_round(self) -> None:
+        self.dealer_idx = self._previous_turn_index(self.dealer_idx)
+        self.round_number += 1
+        self.reset(preserve_session=True)
+        self.deal_cards()
+
+    def _build_empty_session_scores(self) -> List[Dict]:
+        if self.num_players == 4 and all(player.team is not None for player in self.players):
+            return [
+                self._create_session_entry(
+                    entity_id=team_id,
+                    player_name="Team {0}".format(team_id + 1),
+                    members=[player.name for player in self.players if player.team == team_id],
+                    team_id=team_id,
+                )
+                for team_id in (0, 1)
+            ]
+
+        return [
+            self._create_session_entry(
+                entity_id=player.id,
+                player_name=player.name,
+                members=[player.name],
+                team_id=player.id,
+            )
+            for player in self.players
+        ]
+
+    def _create_session_entry(self, entity_id: int, player_name: str, members, team_id: int) -> Dict:
+        return {
+            "entity_id": entity_id,
+            "team_id": team_id,
+            "team": team_id,
+            "player": player_name,
+            "members": list(members),
+            "captured_cards": 0,
+            "coins": 0,
+            "sweeps": 0,
+            "has_settebello": False,
+            "primiera_value": 0,
+            "points_breakdown": {"settebello": 0, "sweeps": 0},
+            "bonuses": {"cards": 0, "coins": 0, "primiera": 0},
+            "total_score": 0,
+            "points": {"cards": 0, "coins": 0, "settebello": 0, "primiera": 0, "sweeps": 0},
+            "total": 0,
+        }
+
+    def _accumulate_tournament_scores(self, round_scores: List[Dict]) -> None:
+        score_lookup = dict((score["team_id"], score) for score in self.tournament_scores)
+        for round_score in round_scores:
+            team_id = round_score["team_id"]
+            cumulative_score = score_lookup.get(team_id)
+            if cumulative_score is None:
+                cumulative_score = self._create_session_entry(
+                    entity_id=round_score["entity_id"],
+                    player_name=round_score["player"],
+                    members=round_score.get("members", []),
+                    team_id=team_id,
+                )
+                self.tournament_scores.append(cumulative_score)
+                score_lookup[team_id] = cumulative_score
+
+            cumulative_score["captured_cards"] += round_score.get("captured_cards", 0)
+            cumulative_score["coins"] += round_score.get("coins", 0)
+            cumulative_score["sweeps"] += round_score.get("sweeps", 0)
+            cumulative_score["primiera_value"] += round_score.get("primiera_value", 0)
+            cumulative_score["has_settebello"] = cumulative_score["has_settebello"] or round_score.get("has_settebello", False)
+
+            for key, value in round_score.get("points_breakdown", {}).items():
+                cumulative_score["points_breakdown"][key] = cumulative_score["points_breakdown"].get(key, 0) + value
+                cumulative_score["points"][key] = cumulative_score["points"].get(key, 0) + value
+
+            for key, value in round_score.get("bonuses", {}).items():
+                cumulative_score["bonuses"][key] = cumulative_score["bonuses"].get(key, 0) + value
+                cumulative_score["points"][key] = cumulative_score["points"].get(key, 0) + value
+
+            cumulative_score["total_score"] += round_score.get("total_score", round_score.get("total", 0))
+            cumulative_score["total"] = cumulative_score["total_score"]
+
+        self.tournament_scores.sort(key=lambda score: score["total_score"], reverse=True)
+
+    def _has_tournament_winner(self) -> bool:
+        if not self.tournament_scores:
+            return False
+        return max(score["total_score"] for score in self.tournament_scores) >= self.target_score
+
+    def _record_round_history(self, scores: List[Dict], session_complete: bool) -> None:
+        winners = ScoringEngine.get_game_winners(scores)
         self.game_history.append(
             {
                 "winners": winners,
-                "scores": self.final_scores.copy(),
+                "scores": self._clone_scores(scores),
+                "round_scores": self._clone_scores(self.round_scores),
                 "num_players": self.num_players,
                 "moves": self.moves_played.copy(),
+                "game_mode": self.game_mode,
+                "dealer_idx": self.dealer_idx,
+                "round_number": self.round_number,
+                "session_complete": session_complete,
             }
         )
 
+    def _previous_turn_index(self, index: int) -> int:
+        return (index - 1) % self.num_players
+
+    def _clone_score_entry(self, score: Dict) -> Dict:
+        cloned = dict(score)
+        if "members" in cloned:
+            cloned["members"] = list(cloned["members"])
+        if "points_breakdown" in cloned:
+            cloned["points_breakdown"] = dict(cloned["points_breakdown"])
+        if "bonuses" in cloned:
+            cloned["bonuses"] = dict(cloned["bonuses"])
+        if "points" in cloned:
+            cloned["points"] = dict(cloned["points"])
+        return cloned
+
+    def _clone_scores(self, scores: List[Dict]) -> List[Dict]:
+        return [self._clone_score_entry(score) for score in scores]
+
     def get_game_state(self) -> dict:
         return {
+            "game_mode": self.game_mode,
+            "dealer_idx": self.dealer_idx,
+            "round_number": self.round_number,
             "current_player": self.get_current_player().name,
             "current_player_idx": self.current_player_idx,
             "table_cards": self.table.copy(),
             "game_active": self.game_active,
+            "tournament_scores": self._clone_scores(self.tournament_scores),
             "players": [
                 {
                     "name": player.name,
@@ -216,5 +387,9 @@ class GameEngine:
             "total_games": len(self.game_history),
             "current_game_moves": len(self.moves_played),
             "num_players": self.num_players,
-            "final_scores": self.final_scores,
+            "game_mode": self.game_mode,
+            "round_number": self.round_number,
+            "final_scores": self._clone_scores(self.final_scores),
+            "round_scores": self._clone_scores(self.round_scores),
+            "tournament_scores": self._clone_scores(self.tournament_scores),
         }
