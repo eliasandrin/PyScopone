@@ -6,7 +6,6 @@ from typing import Optional, TYPE_CHECKING
 
 from scopone.ai.strategies import get_ai_strategy
 from scopone.config.ui import AI_THINKING_DELAY_MS
-from scopone.engine.scoring import ScoringEngine
 
 if TYPE_CHECKING:
     from scopone.engine.game_engine import GameEngine

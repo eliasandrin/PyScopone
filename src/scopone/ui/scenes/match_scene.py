@@ -224,6 +224,8 @@ class MatchScene(Scene):
                 self._remove_render_table_card(captured_card)
 
         if source_rect is None or self.last_layout is None or move_result is None:
+            if self.render_board is not None:
+                self.render_board.sync_from_engine(self.engine)
             self._after_move_animations(move_result)
             return
 
@@ -274,18 +276,21 @@ class MatchScene(Scene):
         )
 
     def _finish_table_play(self, card, move_result) -> None:
-        del move_result
         if self.render_board is not None:
             self.render_board.render_table_cards.append(card)
         self._after_move_animations(move_result)
 
     def _queue_capture_sequence(self, player_id: int, played_card, captured_cards, captured_rects, played_rect, move_result) -> None:
         if self.last_layout is None:
+            if self.render_board is not None:
+                self.render_board.sync_from_engine(self.engine)
             self._after_move_animations(move_result)
             return
 
         cards_to_collect = [played_card] + list(captured_cards)
         if not cards_to_collect:
+            if self.render_board is not None:
+                self.render_board.sync_from_engine(self.engine)
             self._after_move_animations(move_result)
             return
 
@@ -304,6 +309,8 @@ class MatchScene(Scene):
             if remaining["count"] <= 0:
                 if self.render_board is not None:
                     self.render_board.ensure_team(team_id).extend(cards_to_collect)
+                    if move_result.get("sweep_scored"):
+                        self.render_board.render_sweeps[team_id] = self.render_board.ensure_sweeps(team_id) + 1
                 self.app.audio.play("capture")
                 self.capture_pile_bump[team_id] = CAPTURE_PILE_BUMP_DURATION
                 self._after_move_animations(move_result)
@@ -794,13 +801,36 @@ class MatchScene(Scene):
         rows = []
         show_final_total = not self.engine.game_active
 
-        if self.engine.num_players == 4:
-            final_scores = {
-                score["team"]: score
+        if show_final_total:
+            if self.engine.num_players == 4:
+                final_scores = {
+                    score["team"]: score
+                    for score in ScoringEngine.calculate_final_scores(self.engine.players)
+                }
+                for team_id in (0, 1):
+                    score = final_scores.get(team_id, {})
+                    sweeps_value = score.get("sweeps", 0)
+                    rows.append(
+                        {
+                            "label": "Sq {0}".format(team_id + 1),
+                            "color": TEAM_COLORS[team_id],
+                            "cards": score.get("captured_cards", 0),
+                            "coins": score.get("coins", 0),
+                            "primiera": score.get("primiera_value", 0),
+                            "settebello": 1 if score.get("has_settebello") else 0,
+                            "sweeps": sweeps_value,
+                            "total": score.get("total", 0),
+                        }
+                    )
+                return rows
+
+            player_scores = {
+                score["player"]: score
                 for score in ScoringEngine.calculate_final_scores(self.engine.players)
             }
-            for team_id in (0, 1):
-                score = final_scores.get(team_id, {})
+            for player in self.engine.players[:2]:
+                team_id = player.id
+                score = player_scores.get(player.name, {})
                 sweeps_value = score.get("sweeps", 0)
                 rows.append(
                     {
@@ -811,29 +841,24 @@ class MatchScene(Scene):
                         "primiera": score.get("primiera_value", 0),
                         "settebello": 1 if score.get("has_settebello") else 0,
                         "sweeps": sweeps_value,
-                        "total": score.get("total", 0) if show_final_total else sweeps_value,
+                        "total": score.get("total", 0),
                     }
                 )
             return rows
 
-        player_scores = {
-            score["player"]: score
-            for score in ScoringEngine.calculate_final_scores(self.engine.players)
-        }
-        for player in self.engine.players[:2]:
-            team_id = player.id
-            score = player_scores.get(player.name, {})
-            sweeps_value = score.get("sweeps", 0)
+        for team_id in (0, 1):
+            captured_cards = self.render_board.ensure_team(team_id)
+            sweeps_value = self.render_board.ensure_sweeps(team_id)
             rows.append(
                 {
                     "label": "Sq {0}".format(team_id + 1),
                     "color": TEAM_COLORS[team_id],
-                    "cards": score.get("captured_cards", 0),
-                    "coins": score.get("coins", 0),
-                    "primiera": score.get("primiera_value", 0),
-                    "settebello": 1 if score.get("has_settebello") else 0,
+                    "cards": len(captured_cards),
+                    "coins": sum(1 for card in captured_cards if card[1] == "Denari"),
+                    "primiera": ScoringEngine.calculate_primiera(captured_cards),
+                    "settebello": 1 if (7, "Denari") in captured_cards else 0,
                     "sweeps": sweeps_value,
-                    "total": score.get("total", 0) if show_final_total else sweeps_value,
+                    "total": sweeps_value,
                 }
             )
         return rows
