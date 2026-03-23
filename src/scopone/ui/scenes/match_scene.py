@@ -729,7 +729,9 @@ class MatchScene(Scene):
         renderer.draw_text("Tavolo", (rect.centerx, rect.top + 14), size=24, bold=True, align="center")
 
     def _draw_deck_anchor(self, renderer, deck_rect: pygame.Rect) -> None:
-        if self.engine.num_players == 2 or self.animations.has_active():
+        # Draw the deck anchor only in 2-player mode.
+        # Using animations.has_active() here caused a ghost card-back during play tweens.
+        if self.engine.num_players == 2:
             renderer.draw_card((1, "Denari"), deck_rect, face_up=False)
 
     def _draw_table_cards(self, renderer, table_rect: pygame.Rect) -> None:
