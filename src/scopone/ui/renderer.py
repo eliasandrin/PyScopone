@@ -120,11 +120,15 @@ class Renderer:
         rect = pygame.Rect(rect)
         source_size = rect.size
         normalized_angle = angle % 360
-        if normalized_angle in (90, 270):
+
+        # Ignora l'inversione di bounding box per le carte in volo: il loro rect sorgente
+        # è sempre basato sull'asset di partenza, evitando double-rotations fallate a fine corsa.
+        if not is_animating and normalized_angle in (90, 270):
             source_size = (rect.height, rect.width)
 
-        shadow_alpha = 76 if face_up else 64
-        self.draw_card_shadow(rect, alpha=shadow_alpha, offset=(0, 6))
+        if not is_animating:
+            shadow_alpha = 76 if face_up else 64
+            self.draw_card_shadow(rect, alpha=shadow_alpha, offset=(0, 6))
 
         original_card_image = self.assets.get_card_surface(card, source_size, face_up=face_up)
         blit_rect = rect

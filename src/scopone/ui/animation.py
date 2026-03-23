@@ -90,15 +90,15 @@ class CardTween:
         progress = min(max((self.elapsed - self.delay) / self.duration, 0.0), 1.0)
         progress = _apply_easing(progress, self.easing)
         if self.interpolate_size:
-            width = round(_lerp(self.start_rect.width, self.target_rect.width, progress))
-            height = round(_lerp(self.start_rect.height, self.target_rect.height, progress))
+            width = int(_lerp(self.start_rect.width, self.target_rect.width, progress))
+            height = int(_lerp(self.start_rect.height, self.target_rect.height, progress))
         else:
             width = self.start_rect.width
             height = self.start_rect.height
 
         return pygame.Rect(
-            round(_lerp(self.start_rect.x, self.target_rect.x, progress)),
-            round(_lerp(self.start_rect.y, self.target_rect.y, progress)),
+            int(_lerp(self.start_rect.x, self.target_rect.x, progress)),
+            int(_lerp(self.start_rect.y, self.target_rect.y, progress)),
             width,
             height,
         )
@@ -158,7 +158,7 @@ class AnimationManager:
         # Hard cleanup guard: completed tweens must never be rendered again.
         self.animations = [animation for animation in self.animations if not animation.completed]
         for animation in sorted(self.animations, key=lambda item: item.layer):
-            if animation.shadow:
+            if animation.shadow and (animation.get_angle() % 360 == 0):
                 renderer.draw_card_shadow(
                     animation.get_rect(),
                     alpha=animation.shadow_alpha,
