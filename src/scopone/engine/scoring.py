@@ -54,17 +54,13 @@ class ScoringEngine:
         """
         card_value = card[0]
 
-        single_captures = [table_card for table_card in table_cards if table_card[0] == card_value]
-        if single_captures:
-            return [[single_captures[0]]]
-
-        combination_captures = []  # type: List[List[Card]]
-        for combo_size in range(2, len(table_cards) + 1):
+        legal_captures = []  # type: List[List[Card]]
+        for combo_size in range(1, len(table_cards) + 1):
             for combo in combinations(table_cards, combo_size):
                 if sum(table_card[0] for table_card in combo) == card_value:
-                    combination_captures.append(list(combo))
+                    legal_captures.append(list(combo))
 
-        return combination_captures if combination_captures else [[]]
+        return legal_captures if legal_captures else [[]]
 
     @staticmethod
     def calculate_player_score(player) -> dict:

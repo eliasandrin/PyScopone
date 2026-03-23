@@ -12,9 +12,45 @@ from scopone.models.player import Player
 
 
 class ScoringTests(unittest.TestCase):
+    def _normalize_capture_result(self, captures):
+        return {tuple(combo) for combo in captures}
+
     def test_find_captures_returns_combination_when_no_equal_card_exists(self):
         captures = ScoringEngine.find_captures((7, "Spade"), [(3, "Denari"), (4, "Coppe"), (8, "Bastoni")])
         self.assertEqual(captures, [[(3, "Denari"), (4, "Coppe")]])
+
+    def test_find_captures_returns_all_legal_combinations(self):
+        table = [
+            (6, "Denari"),
+            (4, "Coppe"),
+            (2, "Spade"),
+            (5, "Bastoni"),
+            (1, "Denari"),
+            (3, "Coppe"),
+        ]
+        captures = ScoringEngine.find_captures((6, "Spade"), table)
+        expected = {
+            ((6, "Denari"),),
+            ((4, "Coppe"), (2, "Spade")),
+            ((5, "Bastoni"), (1, "Denari")),
+            ((2, "Spade"), (1, "Denari"), (3, "Coppe")),
+        }
+        self.assertEqual(self._normalize_capture_result(captures), expected)
+
+    def test_find_captures_includes_all_equal_value_options(self):
+        table = [
+            (7, "Denari"),
+            (7, "Coppe"),
+            (4, "Spade"),
+            (3, "Bastoni"),
+        ]
+        captures = ScoringEngine.find_captures((7, "Spade"), table)
+        expected = {
+            ((7, "Denari"),),
+            ((7, "Coppe"),),
+            ((4, "Spade"), (3, "Bastoni")),
+        }
+        self.assertEqual(self._normalize_capture_result(captures), expected)
 
     def test_calculate_primiera_uses_best_card_per_suit(self):
         cards = [(7, "Denari"), (6, "Denari"), (1, "Coppe"), (5, "Bastoni"), (4, "Spade")]
