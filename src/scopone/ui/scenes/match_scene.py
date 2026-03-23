@@ -211,8 +211,8 @@ class MatchScene(Scene):
         self.app.show_setup()
 
     def _cycle_difficulty(self) -> None:
-        difficulties = ["easy", "normal", "expert", "adaptive"]
-        current = difficulties.index(self.settings["difficulty"])
+        difficulties = ["divertimento", "normale", "esperto"]
+        current = difficulties.index(self.settings["difficulty"]) if self.settings["difficulty"] in difficulties else 1
         self.settings["difficulty"] = difficulties[(current + 1) % len(difficulties)]
         self._append_log("Difficolta AI impostata su {0}.".format(self.settings["difficulty"]))
 
@@ -275,6 +275,7 @@ class MatchScene(Scene):
         selected_card = strategy.choose_card(
             current_player.hand,
             self.engine.table,
+            player_scores=self._build_ai_player_scores(current_player),
             seen_cards=self.engine.seen_cards,
         )
         if selected_card is None:
@@ -289,6 +290,15 @@ class MatchScene(Scene):
         self.pending_ai_player_id = None
         self.ai_timer = 0.0
         self._queue_move_sequence(current_player, selected_card, source_rect, captured_cards, captured_rects, self.engine.last_move_result)
+
+    def _build_ai_player_scores(self, player) -> dict:
+        team_captured = list(player.captured)
+        if self.engine.num_players == 4 and player.team is not None:
+            team_captured = []
+            for teammate in self.engine.players:
+                if teammate.team == player.team:
+                    team_captured.extend(teammate.captured)
+        return {"team_captured": team_captured}
 
     def _queue_move_sequence(self, player, card, source_rect, captured_cards, captured_rects, move_result) -> None:
         # Nasconde subitissimo le nuove carte ri-distribuite prima del volo animato della carta giocata.
@@ -959,10 +969,9 @@ class MatchScene(Scene):
         renderer.draw_text("La partita e in pausa", (rect.centerx, rect.top + 56), size=16, color=TEXT_DIM_COLOR, align="center")
 
         difficulty_labels = {
-            "easy": "Facile",
-            "normal": "Normale",
-            "expert": "Esperto",
-            "adaptive": "Adattivo",
+            "divertimento": "Divertimento",
+            "normale": "Normale",
+            "esperto": "Esperto",
         }
         difficulty_text = "Difficolta: {0}".format(difficulty_labels.get(self.settings["difficulty"], self.settings["difficulty"]))
         visibility_text = "Visibilita: {0}".format("Completa" if self.settings["show_all_cards"] else "Nascosta")

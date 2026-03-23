@@ -1,7 +1,7 @@
 """AI strategies for Scopone."""
 
 import random
-from typing import Dict, List, Optional, Set
+from typing import Dict, List
 
 from scopone.config.game import FULL_DECK
 from scopone.engine.scoring import ScoringEngine
@@ -11,7 +11,7 @@ from scopone.types import Card
 class AIStrategy:
     """Base class for AI strategies in Scopone."""
 
-    def __init__(self, difficulty: str = "normal") -> None:
+    def __init__(self, difficulty: str = "normale") -> None:
         self.difficulty = difficulty
         self.last_decision_reason = ""
 
@@ -27,70 +27,61 @@ class AIStrategy:
 
 class EasyAI(AIStrategy):
     def choose_card(self, hand, table_cards, **kwargs):
-        del table_cards, kwargs
+        del kwargs
+
+        if not hand:
+            self._set_reason("mano vuota")
+            return None
+
+        capture_candidates = []
+        for card in hand:
+            possible_captures = ScoringEngine.find_captures(card, table_cards)
+            if possible_captures and possible_captures[0]:
+                capture_candidates.append(card)
+
+        if capture_candidates:
+            chosen = random.choice(capture_candidates)
+            self._set_reason("presa casuale disponibile (livello divertimento)")
+            return chosen
+
         chosen = random.choice(hand)
-        self._set_reason("scelta casuale (livello facile)")
+        self._set_reason("nessuna presa disponibile: scarto casuale (livello divertimento)")
         return chosen
 
 
 class NormalAI(AIStrategy):
     def choose_card(self, hand, table_cards, **kwargs):
         del kwargs
-        for card in hand:
-            possible_captures = ScoringEngine.find_captures(card, table_cards)
-            if possible_captures and possible_captures[0]:
-                self._set_reason("cattura disponibile: priorita alla presa")
-                return card
 
-        if hand:
-            chosen = min(hand, key=lambda item: item[0])
-            self._set_reason("nessuna presa disponibile: gioco la carta piu bassa")
-            return chosen
+        if not hand:
+            self._set_reason("mano vuota")
+            return None
 
-        self._set_reason("mano vuota")
-        return None
-
-
-class ExpertAI(AIStrategy):
-    def choose_card(self, hand, table_cards, **kwargs):
-        del kwargs
         best_card = None
-        best_combo_size = 0
-
+        best_move_key = None
         for card in hand:
             possible_captures = ScoringEngine.find_captures(card, table_cards)
-            if possible_captures:
-                for combo in possible_captures:
-                    if len(combo) > best_combo_size:
-                        best_combo_size = len(combo)
-                        best_card = card
+            for combo in possible_captures:
+                if not combo:
+                    continue
+                move_key = (
+                    len(combo),
+                    sum(1 for captured in combo if captured[1] == "Denari"),
+                )
+                if best_move_key is None or move_key > best_move_key:
+                    best_move_key = move_key
+                    best_card = card
 
-                    if best_combo_size >= 2:
-                        coins_captured = len([captured for captured in combo if captured[1] == "Denari"])
-                        if coins_captured > 0:
-                            best_card = card
-                            break
-
-        if best_card:
+        if best_card is not None:
             self._set_reason("scelgo la presa con combinazione piu vantaggiosa")
             return best_card
 
-        for card in hand:
-            possible_captures = ScoringEngine.find_captures(card, table_cards)
-            if possible_captures and possible_captures[0]:
-                self._set_reason("faccio una presa singola utile")
-                return card
-
-        if hand:
-            chosen = max(hand, key=lambda item: item[0])
-            self._set_reason("nessuna presa: scarico carta alta")
-            return chosen
-
-        self._set_reason("mano vuota")
-        return None
+        chosen = max(hand, key=lambda item: item[0])
+        self._set_reason("nessuna presa: scarico carta alta")
+        return chosen
 
 
-class AdaptiveAI(AIStrategy):
+class ExpertAI(AIStrategy):
     PRIMIERA_VALUES = {
         7: 21,
         6: 18,
@@ -112,7 +103,7 @@ class AdaptiveAI(AIStrategy):
         seen_cards=None,
         deck_size=None,
     ):
-        del player_scores, deck_size
+        del deck_size
 
         if not hand:
             self._set_reason("mano vuota")
@@ -122,7 +113,7 @@ class AdaptiveAI(AIStrategy):
         if not table_cards:
             best_move = self._choose_safe_card_empty_table(hand, seen)
         else:
-            best_move = self._choose_strategic_card_with_table(hand, table_cards, seen)
+            best_move = self._choose_strategic_card_with_table(hand, table_cards, seen, player_scores)
 
         self._set_reason(best_move["reason"])
         return best_move["card"]
@@ -160,7 +151,30 @@ class AdaptiveAI(AIStrategy):
         )
         return best
 
-    def _choose_strategic_card_with_table(self, hand, table_cards, seen_cards):
+    def _calculate_real_primiera_gain(self, capture_combo: List[Card], player_scores: dict) -> int:
+        if not player_scores:
+            return sum(self.PRIMIERA_VALUES.get(card[0], 0) for card in capture_combo)
+
+        current_captured = player_scores.get("team_captured", [])
+
+        def get_best_per_suit(cards: List[Card]) -> Dict[str, int]:
+            best = {"Denari": 0, "Coppe": 0, "Spade": 0, "Bastoni": 0}
+            for value, suit in cards:
+                points = self.PRIMIERA_VALUES.get(value, 0)
+                if points > best[suit]:
+                    best[suit] = points
+            return best
+
+        current_best = get_best_per_suit(current_captured)
+        current_total = sum(current_best.values())
+
+        hypothetical_captured = current_captured + capture_combo
+        hypothetical_best = get_best_per_suit(hypothetical_captured)
+        hypothetical_total = sum(hypothetical_best.values())
+
+        return hypothetical_total - current_total
+
+    def _choose_strategic_card_with_table(self, hand, table_cards, seen_cards, player_scores=None):
         moves = []
         for card in hand:
             possible_captures = ScoringEngine.find_captures(card, table_cards)
@@ -176,7 +190,7 @@ class AdaptiveAI(AIStrategy):
                     "is_capture": bool(capture_combo),
                     "makes_scopa": bool(capture_combo) and not remaining_table,
                     "captures_settebello": (7, "Denari") in capture_combo,
-                    "primiera_gain": sum(self.PRIMIERA_VALUES.get(captured[0], 0) for captured in capture_combo),
+                    "primiera_gain": self._calculate_real_primiera_gain(capture_combo, player_scores),
                     "denari_gain": sum(1 for captured in capture_combo if captured[1] == "Denari"),
                     "capture_count": len(capture_combo),
                     "scopa_prob": self._opponent_scopa_probability(remaining_table, seen_cards, hand, card),
@@ -283,12 +297,11 @@ class AdaptiveAI(AIStrategy):
         return scopa_cards / len(opponent_candidates)
 
 
-def get_ai_strategy(difficulty: str = "normal") -> AIStrategy:
+def get_ai_strategy(difficulty: str = "normale") -> AIStrategy:
     strategies = {
-        "easy": EasyAI,
-        "normal": NormalAI,
-        "expert": ExpertAI,
-        "adaptive": AdaptiveAI,
+        "divertimento": EasyAI,
+        "normale": NormalAI,
+        "esperto": ExpertAI,
     }
-    strategy_class = strategies.get(difficulty, NormalAI)
-    return strategy_class(difficulty)
+    selected_difficulty = difficulty if difficulty in strategies else "normale"
+    return strategies[selected_difficulty](selected_difficulty)

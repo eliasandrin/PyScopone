@@ -97,10 +97,9 @@ class ResultsScene(Scene):
 
     def _build_subtitle(self) -> str:
         difficulty_labels = {
-            "easy": "Facile",
-            "normal": "Normale",
-            "expert": "Esperto",
-            "adaptive": "Adattivo",
+            "divertimento": "Divertimento",
+            "normale": "Normale",
+            "esperto": "Esperto",
         }
         match_type = "Partita a {0} giocatori".format(self.settings["num_players"])
         difficulty = "Difficolta: {0}".format(

@@ -11,10 +11,9 @@ class SetupScene(Scene):
     def __init__(self, app) -> None:
         super().__init__(app)
         self.difficulties = [
-            ("Facile", "easy"),
-            ("Normale", "normal"),
-            ("Esperto", "expert"),
-            ("Adattivo", "adaptive"),
+            ("Divertimento", "divertimento"),
+            ("Normale", "normale"),
+            ("Esperto", "esperto"),
         ]
         self.player_options = [2, 4]
         self.difficulty_index = 1
