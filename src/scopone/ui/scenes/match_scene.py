@@ -1,6 +1,6 @@
 import pygame
 
-from scopone.config.game import DEFAULT_PLAYER_NAMES, INITIAL_HAND_CARDS, MODE_QUICK, SIMBOLI, TARGET_SCORE_TOURNAMENT
+from scopone.config.game import DEFAULT_PLAYER_NAMES, INITIAL_HAND_CARDS, MODE_QUICK, MODE_TOURNAMENT, SIMBOLI, TARGET_SCORE_TOURNAMENT
 from scopone.config.ui import (
     CARD_SIZE_HAND,
     CARD_SIZE_SMALL,
@@ -40,7 +40,7 @@ CAPTURE_PILE_GAP = 40
 CAPTURE_PILE_STACK_STEP = 3
 CAPTURE_PILE_BUMP_DURATION = 0.10
 CAPTURE_PILE_BUMP_SCALE = 1.05
-ROUND_NOTICE_DURATION = 2.6
+ROUND_OVERLAY_BLINK_MS = 520
 
 
 class MatchScene(Scene):
@@ -73,8 +73,10 @@ class MatchScene(Scene):
         self.capture_pile_bump = {0: 0.0, 1: 0.0}
         self.last_layout = None
         self.deal_sequence_pending = False
-        self.round_notice_message = ""
-        self.round_notice_timer = 0.0
+        self.round_end_overlay_active = False
+        self.round_end_overlay_rows = []
+        self.round_end_prompt_visible = True
+        self.round_end_prompt_timer = 0.0
         self.coordinator = MatchCoordinator(self.app, self.engine, self)
 
         self._start_new_game()
@@ -104,8 +106,10 @@ class MatchScene(Scene):
         self.capture_pile_targets = {}
         self.capture_pile_rects = {}
         self.capture_pile_bump = {0: 0.0, 1: 0.0}
-        self.round_notice_message = ""
-        self.round_notice_timer = 0.0
+        self.round_end_overlay_active = False
+        self.round_end_overlay_rows = []
+        self.round_end_prompt_visible = True
+        self.round_end_prompt_timer = 0.0
         self.render_board = RenderBoard.from_engine(self.engine)
         self.deal_sequence_pending = True
         self.coordinator.bind_engine(self.engine)
@@ -120,6 +124,9 @@ class MatchScene(Scene):
             return
 
         if event.type == pygame.KEYDOWN:
+            if self.round_end_overlay_active and event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                self._confirm_round_end_overlay()
+                return
             if event.key == pygame.K_ESCAPE:
                 self.menu_open = not self.menu_open
                 return
@@ -156,6 +163,10 @@ class MatchScene(Scene):
 
         if self.menu_button_rect.collidepoint(event.pos):
             self.menu_open = not self.menu_open
+            return
+
+        if self.round_end_overlay_active:
+            self._confirm_round_end_overlay()
             return
 
         if self.menu_open:
@@ -227,42 +238,65 @@ class MatchScene(Scene):
         self.animations.update(dt)
         for team_id in list(self.capture_pile_bump.keys()):
             self.capture_pile_bump[team_id] = max(0.0, self.capture_pile_bump[team_id] - dt)
-        self.round_notice_timer = max(0.0, self.round_notice_timer - dt)
-        if self.round_notice_timer <= 0.0:
-            self.round_notice_message = ""
+
+        if self.round_end_overlay_active:
+            self.round_end_prompt_timer += dt * 1000.0
+            if self.round_end_prompt_timer >= ROUND_OVERLAY_BLINK_MS:
+                self.round_end_prompt_visible = not self.round_end_prompt_visible
+                self.round_end_prompt_timer = 0.0
+
         self.coordinator.update(dt)
 
-    def on_round_transition(self, move_result) -> None:
+    def show_round_end_overlay(self, move_result) -> None:
         if self.engine is None:
             return
 
-        round_completed = max(1, self.engine.round_number - 1)
-        self.round_notice_message = "Fine round {0}. Nuova smazzata in corso...".format(round_completed)
-        self.round_notice_timer = ROUND_NOTICE_DURATION
-        self._append_log(self.round_notice_message)
+        self.round_end_overlay_active = True
+        self.round_end_prompt_visible = True
+        self.round_end_prompt_timer = 0.0
+        self.round_end_overlay_rows = self._build_round_overlay_rows(move_result.get("round_scores", []))
+        self._append_log("Fine smazzata. Premi INVIO per continuare.")
 
-        tournament_scores = move_result.get("tournament_scores", []) if move_result is not None else []
-        if tournament_scores:
-            leaderboard = ", ".join(
-                "{0}: {1}".format(score.get("player", "Squadra"), score.get("total", 0))
-                for score in tournament_scores
-            )
-            self._append_log("Punteggi torneo: {0}".format(leaderboard))
+    def _confirm_round_end_overlay(self) -> None:
+        if self.engine is None or not self.round_end_overlay_active:
+            return
 
+        self.round_end_overlay_active = False
+        self.round_end_overlay_rows = []
+        self.round_end_prompt_visible = True
+        self.round_end_prompt_timer = 0.0
+
+        self.engine.start_next_round()
         self.render_board = RenderBoard.from_engine(self.engine)
         self.card_hitboxes = []
         self.card_position_map = {"hands": {}, "table": {}}
+        self.capture_pile_targets = {}
+        self.capture_pile_rects = {}
         self.capture_pile_bump = {0: 0.0, 1: 0.0}
+        self.animations.clear()
+        self.deal_sequence_pending = True
+        self.coordinator.on_round_confirmed()
 
-        if self.last_layout is None:
-            self.deal_sequence_pending = True
-            return
-
-        self._schedule_deal_sequence(
-            self.last_layout,
-            include_table=True,
-            only_player_ids=[player.id for player in self.engine.players],
-        )
+    def _build_round_overlay_rows(self, round_scores):
+        rows = []
+        if not round_scores:
+            return rows
+        ordered_scores = sorted(round_scores, key=lambda score: score.get("team_id", 0))
+        for score in ordered_scores:
+            team_id = score.get("team_id", 0)
+            settebello_str = "Sì" if score.get("has_settebello") else "No"
+            rows.append(
+                "Sq {0}  Carte: {1}  Denari: {2}  Primiera: {3}  Settebello: {4}  Scope: {5}  Totale: {6}".format(
+                    team_id + 1,
+                    score.get("captured_cards", 0),
+                    score.get("coins", 0),
+                    score.get("primiera_value", 0),
+                    settebello_str,
+                    score.get("sweeps", 0),
+                    score.get("total", 0),
+                )
+            )
+        return rows
 
     def _queue_move_sequence(self, player, card, source_rect, captured_cards, captured_rects, move_result) -> None:
         if self.render_board is not None:
@@ -450,11 +484,11 @@ class MatchScene(Scene):
         if self.log_visible:
             self._draw_log_overlay(renderer)
 
-        if self.round_notice_message:
-            self._draw_round_notice(renderer)
-
         if self.menu_open:
             self._draw_menu_overlay(renderer, layout["overlay_rect"], mouse_pos)
+
+        if self.round_end_overlay_active:
+            self._draw_round_end_overlay(renderer)
 
     def _schedule_deal_sequence(self, layout, include_table: bool, only_player_ids, on_complete=None) -> None:
         assert self.render_board is not None
@@ -850,6 +884,8 @@ class MatchScene(Scene):
     def _get_live_team_rows(self):
         rows = []
         show_final_total = not self.engine.game_active
+        is_tournament = self.settings.get("game_mode") == MODE_TOURNAMENT
+        live_base = self.engine.get_live_tournament_scores() if is_tournament else {}
 
         if show_final_total:
             if self.engine.num_players == 4:
@@ -860,6 +896,7 @@ class MatchScene(Scene):
                 for team_id in (0, 1):
                     score = final_scores.get(team_id, {})
                     sweeps_value = score.get("sweeps", 0)
+                    hand_total = score.get("total", 0)
                     rows.append(
                         {
                             "label": "Sq {0}".format(team_id + 1),
@@ -869,7 +906,7 @@ class MatchScene(Scene):
                             "primiera": score.get("primiera_value", 0),
                             "settebello": 1 if score.get("has_settebello") else 0,
                             "sweeps": sweeps_value,
-                            "total": score.get("total", 0),
+                            "total": (live_base.get(team_id, 0) + hand_total) if is_tournament else hand_total,
                         }
                     )
                 return rows
@@ -882,6 +919,7 @@ class MatchScene(Scene):
                 team_id = player.id
                 score = player_scores.get(player.name, {})
                 sweeps_value = score.get("sweeps", 0)
+                hand_total = score.get("total", 0)
                 rows.append(
                     {
                         "label": "Sq {0}".format(team_id + 1),
@@ -891,7 +929,7 @@ class MatchScene(Scene):
                         "primiera": score.get("primiera_value", 0),
                         "settebello": 1 if score.get("has_settebello") else 0,
                         "sweeps": sweeps_value,
-                        "total": score.get("total", 0),
+                        "total": (live_base.get(team_id, 0) + hand_total) if is_tournament else hand_total,
                     }
                 )
             return rows
@@ -899,6 +937,7 @@ class MatchScene(Scene):
         for team_id in (0, 1):
             captured_cards = self.render_board.ensure_team(team_id)
             sweeps_value = self.render_board.ensure_sweeps(team_id)
+            live_total = sweeps_value + (live_base.get(team_id, 0) if is_tournament else 0)
             rows.append(
                 {
                     "label": "Sq {0}".format(team_id + 1),
@@ -908,7 +947,7 @@ class MatchScene(Scene):
                     "primiera": ScoringEngine.calculate_primiera(captured_cards),
                     "settebello": 1 if (7, "Denari") in captured_cards else 0,
                     "sweeps": sweeps_value,
-                    "total": sweeps_value,
+                    "total": live_total,
                 }
             )
         return rows
@@ -1031,24 +1070,53 @@ class MatchScene(Scene):
             row = renderer.draw_text(message, (line_area.left, y), size=15, color=TEXT_DIM_COLOR)
             y = row.bottom + 6
 
-    def _draw_round_notice(self, renderer) -> None:
-        notice_width = self._clamp(int(renderer.surface.get_width() * 0.52), 520, 980)
-        notice_height = self._clamp(int(renderer.surface.get_height() * 0.10), 78, 118)
-        notice_rect = pygame.Rect(
-            (renderer.surface.get_width() - notice_width) // 2,
-            self._clamp(int(renderer.surface.get_height() * 0.06), 56, 92),
-            notice_width,
-            notice_height,
+    def _draw_round_end_overlay(self, renderer) -> None:
+        width, height = renderer.surface.get_size()
+        dimmer = pygame.Surface((width, height), pygame.SRCALPHA)
+        dimmer.fill((0, 0, 0, 170))
+        renderer.surface.blit(dimmer, (0, 0))
+
+        overlay_width = self._clamp(int(width * 0.62), 740, 1100)
+        overlay_height = self._clamp(int(height * 0.42), 360, 520)
+        overlay_rect = pygame.Rect(
+            (width - overlay_width) // 2,
+            (height - overlay_height) // 2,
+            overlay_width,
+            overlay_height,
         )
-        self._draw_glass_panel(renderer, notice_rect, PANEL_COLOR, HIGHLIGHT_COLOR, alpha=216)
+        self._draw_glass_panel(renderer, overlay_rect, PANEL_COLOR, HIGHLIGHT_COLOR, alpha=236)
+
+        round_number = max(1, self.engine.round_number)
         renderer.draw_text(
-            self.round_notice_message,
-            notice_rect.center,
-            size=self._clamp(int(renderer.surface.get_width() * 0.016), 20, 30),
+            "Fine Smazzata - Round {0}".format(round_number),
+            (overlay_rect.centerx, overlay_rect.top + 26),
+            size=34,
             color=TEXT_COLOR,
             bold=True,
             align="center",
+            font_role="title",
         )
+
+        y = overlay_rect.top + 84
+        for row_text in self.round_end_overlay_rows:
+            renderer.draw_text(
+                row_text,
+                (overlay_rect.centerx, y),
+                size=23,
+                color=TEXT_DIM_COLOR,
+                align="center",
+            )
+            y += 42
+
+        if self.round_end_prompt_visible:
+            renderer.draw_text(
+                "Premi INVIO per giocare la prossima smazzata",
+                (overlay_rect.centerx, overlay_rect.bottom - 38),
+                size=24,
+                color=TEXT_COLOR,
+                bold=True,
+                align="center",
+            )
 
     def _ensure_log_rect(self, width: int, height: int) -> None:
         if self.log_rect is None:

@@ -40,8 +40,9 @@ class GameEngine:
         self.moves_played = []  # type: List[Tuple[str, Card]]
         self.final_scores = []  # type: List[Dict]
         self.round_scores = []  # type: List[Dict]
-        self.tournament_scores = []  # type: List[Dict]
-        self.game_history = []  # type: List[Dict]
+        self.tournament_scores = {}  # type: Dict[int, Dict]
+        self.round_history = []  # type: List[Dict]
+        self.game_history = self.round_history  # Backward compatibility alias
         self.last_move_result = None  # type: Optional[Dict]
         self.round_number = 0
 
@@ -81,7 +82,7 @@ class GameEngine:
             self.final_scores = []
             self.round_scores = []
         elif self.game_mode == MODE_TOURNAMENT:
-            self.final_scores = self._clone_scores(self.tournament_scores)
+            self.final_scores = self._clone_scores(self._get_sorted_tournament_scores())
         self.last_move_result = None
 
         for player in self.players:
@@ -197,6 +198,12 @@ class GameEngine:
     def next_player(self) -> None:
         self.current_player_idx = (self.current_player_idx - 1) % self.num_players
 
+    def get_live_tournament_scores(self) -> Dict[int, int]:
+        """Returns cumulative tournament totals for each team/player before the current hand."""
+        if not self.tournament_scores:
+            return {}
+        return dict((team_id, score.get("total_score", score.get("total", 0))) for team_id, score in self.tournament_scores.items())
+
     def end_game(self) -> dict:
         round_summary = {
             "round_complete": True,
@@ -225,8 +232,9 @@ class GameEngine:
             return round_summary
 
         self._accumulate_tournament_scores(self.round_scores)
-        self.final_scores = self._clone_scores(self.tournament_scores)
-        round_summary["tournament_scores"] = self._clone_scores(self.tournament_scores)
+        tournament_score_list = self._get_sorted_tournament_scores()
+        self.final_scores = self._clone_scores(tournament_score_list)
+        round_summary["tournament_scores"] = self._clone_scores(tournament_score_list)
 
         if self._has_tournament_winner():
             self._record_round_history(self.final_scores, session_complete=True)
@@ -235,19 +243,22 @@ class GameEngine:
             return round_summary
 
         self._record_round_history(self.round_scores, session_complete=False)
-        self.start_next_round()
-        round_summary["next_round_started"] = True
+        # Tournament continues, but the next hand is started by the UI after
+        # showing the round-end summary overlay.
+        self.game_active = False
         return round_summary
 
     def start_next_round(self) -> None:
+        # Rotate dealer and keep cumulative session data while resetting hands/table.
         self.dealer_idx = self._previous_turn_index(self.dealer_idx)
         self.round_number += 1
         self.reset(preserve_session=True)
         self.deal_cards()
 
-    def _build_empty_session_scores(self) -> List[Dict]:
+    def _build_empty_session_scores(self) -> Dict[int, Dict]:
+        entries = []
         if self.num_players == 4 and all(player.team is not None for player in self.players):
-            return [
+            entries = [
                 self._create_session_entry(
                     entity_id=team_id,
                     player_name="Team {0}".format(team_id + 1),
@@ -256,16 +267,18 @@ class GameEngine:
                 )
                 for team_id in (0, 1)
             ]
+        else:
+            entries = [
+                self._create_session_entry(
+                    entity_id=player.id,
+                    player_name=player.name,
+                    members=[player.name],
+                    team_id=player.id,
+                )
+                for player in self.players
+            ]
 
-        return [
-            self._create_session_entry(
-                entity_id=player.id,
-                player_name=player.name,
-                members=[player.name],
-                team_id=player.id,
-            )
-            for player in self.players
-        ]
+        return dict((entry["team_id"], entry) for entry in entries)
 
     def _create_session_entry(self, entity_id: int, player_name: str, members, team_id: int) -> Dict:
         return {
@@ -287,7 +300,7 @@ class GameEngine:
         }
 
     def _accumulate_tournament_scores(self, round_scores: List[Dict]) -> None:
-        score_lookup = dict((score["team_id"], score) for score in self.tournament_scores)
+        score_lookup = self.tournament_scores
         for round_score in round_scores:
             team_id = round_score["team_id"]
             cumulative_score = score_lookup.get(team_id)
@@ -298,7 +311,6 @@ class GameEngine:
                     members=round_score.get("members", []),
                     team_id=team_id,
                 )
-                self.tournament_scores.append(cumulative_score)
                 score_lookup[team_id] = cumulative_score
 
             cumulative_score["captured_cards"] += round_score.get("captured_cards", 0)
@@ -318,16 +330,21 @@ class GameEngine:
             cumulative_score["total_score"] += round_score.get("total_score", round_score.get("total", 0))
             cumulative_score["total"] = cumulative_score["total_score"]
 
-        self.tournament_scores.sort(key=lambda score: score["total_score"], reverse=True)
+    def _get_sorted_tournament_scores(self) -> List[Dict]:
+        return sorted(
+            [self._clone_score_entry(score) for score in self.tournament_scores.values()],
+            key=lambda score: score.get("total_score", score.get("total", 0)),
+            reverse=True,
+        )
 
     def _has_tournament_winner(self) -> bool:
         if not self.tournament_scores:
             return False
-        return max(score["total_score"] for score in self.tournament_scores) >= self.target_score
+        return max(score.get("total_score", score.get("total", 0)) for score in self.tournament_scores.values()) >= self.target_score
 
     def _record_round_history(self, scores: List[Dict], session_complete: bool) -> None:
         winners = ScoringEngine.get_game_winners(scores)
-        self.game_history.append(
+        self.round_history.append(
             {
                 "winners": winners,
                 "scores": self._clone_scores(scores),
@@ -368,7 +385,7 @@ class GameEngine:
             "current_player_idx": self.current_player_idx,
             "table_cards": self.table.copy(),
             "game_active": self.game_active,
-            "tournament_scores": self._clone_scores(self.tournament_scores),
+            "tournament_scores": self._clone_scores(self._get_sorted_tournament_scores()),
             "players": [
                 {
                     "name": player.name,
@@ -384,12 +401,12 @@ class GameEngine:
 
     def get_game_stats(self) -> dict:
         return {
-            "total_games": len(self.game_history),
+            "total_games": len(self.round_history),
             "current_game_moves": len(self.moves_played),
             "num_players": self.num_players,
             "game_mode": self.game_mode,
             "round_number": self.round_number,
             "final_scores": self._clone_scores(self.final_scores),
             "round_scores": self._clone_scores(self.round_scores),
-            "tournament_scores": self._clone_scores(self.tournament_scores),
+            "tournament_scores": self._clone_scores(self._get_sorted_tournament_scores()),
         }

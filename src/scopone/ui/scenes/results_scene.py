@@ -23,6 +23,7 @@ class ResultsScene(Scene):
         self.final_scores = list(final_scores)
         self.settings = dict(settings)
         self.settings.setdefault("game_mode", MODE_QUICK)
+        self.round_history = list(self.settings.get("round_history", []))
         self.log_messages = list(log_messages)
         self.buttons = {}
         self.audio_button_rect = pygame.Rect(0, 0, 0, 0)
@@ -87,6 +88,16 @@ class ResultsScene(Scene):
             align="center",
         )
 
+        if self.settings.get("game_mode") == MODE_TOURNAMENT:
+            self._draw_tournament_summary(renderer, layout)
+            self._draw_actions(renderer, layout, mouse_pos)
+            renderer.draw_audio_toggle(
+                layout["audio_button"],
+                muted=self.app.is_muted,
+                hovered=layout["audio_button"].collidepoint(mouse_pos),
+            )
+            return
+
         left_metrics = self._draw_column(renderer, columns[0], layout["left_center_x"], layout["columns_top"], layout)
         right_metrics = self._draw_column(renderer, columns[1], layout["right_center_x"], layout["columns_top"], layout)
         self._draw_winner(renderer, columns, left_metrics, right_metrics, layout)
@@ -115,6 +126,61 @@ class ResultsScene(Scene):
         if self.settings.get("game_mode") == MODE_TOURNAMENT:
             return "HA VINTO IL TORNEO A 21 PUNTI!"
         return "RISULTATI PARTITA"
+
+    def _draw_tournament_summary(self, renderer, layout: dict) -> None:
+        panel_rect = pygame.Rect(
+            layout["screen_center_x"] - 520,
+            layout["columns_top"] - 26,
+            1040,
+            500,
+        )
+        panel_rect.width = min(panel_rect.width, renderer.surface.get_width() - 120)
+        panel_rect.left = (renderer.surface.get_width() - panel_rect.width) // 2
+        panel_rect.height = min(panel_rect.height, renderer.surface.get_height() - 300)
+
+        shade = pygame.Surface(panel_rect.size, pygame.SRCALPHA)
+        shade.fill((15, 28, 48, 220))
+        renderer.surface.blit(shade, panel_rect.topleft)
+        pygame.draw.rect(renderer.surface, (130, 170, 220), panel_rect, width=2, border_radius=8)
+
+        renderer.draw_text("Riepilogo Smazzate", (panel_rect.centerx, panel_rect.top + 16), size=30, bold=True, align="midtop")
+
+        header_y = panel_rect.top + 66
+        col_round_x = panel_rect.left + 170
+        col_team1_x = panel_rect.centerx - 90
+        col_team2_x = panel_rect.centerx + 90
+        renderer.draw_text("Round", (col_round_x, header_y), size=21, color=TEXT_DIM_COLOR, align="center")
+        renderer.draw_text("Sq 1", (col_team1_x, header_y), size=21, color=TEAM_COLORS[0], align="center")
+        renderer.draw_text("Sq 2", (col_team2_x, header_y), size=21, color=TEAM_COLORS[1], align="center")
+
+        round_rows = self._extract_round_rows()
+        available_rows = max(1, (panel_rect.height - 180) // 34)
+        visible_rows = round_rows[-available_rows:]
+
+        y = header_y + 38
+        for round_number, team1_total, team2_total in visible_rows:
+            renderer.draw_text("Round {0}".format(round_number), (col_round_x, y), size=20, color=TEXT_COLOR, align="center")
+            renderer.draw_text(str(team1_total), (col_team1_x, y), size=21, color=TEXT_COLOR, bold=True, align="center")
+            renderer.draw_text(str(team2_total), (col_team2_x, y), size=21, color=TEXT_COLOR, bold=True, align="center")
+            y += 34
+
+        final_team1, final_team2 = self._extract_final_totals()
+        total_y = panel_rect.bottom - 58
+        renderer.draw_text("Totale Finale", (panel_rect.centerx - 170, total_y), size=25, color=TEXT_COLOR, bold=True, align="center")
+        renderer.draw_text("{0} - {1}".format(final_team1, final_team2), (panel_rect.centerx + 90, total_y), size=30, color=TEXT_COLOR, bold=True, align="center")
+
+    def _extract_round_rows(self):
+        rows = []
+        for history_entry in self.round_history:
+            round_number = history_entry.get("round_number", len(rows) + 1)
+            round_scores = history_entry.get("round_scores", [])
+            lookup = dict((score.get("team_id", score.get("team", 0)), score.get("total", 0)) for score in round_scores)
+            rows.append((round_number, lookup.get(0, 0), lookup.get(1, 0)))
+        return rows
+
+    def _extract_final_totals(self):
+        lookup = dict((score.get("team_id", score.get("team", 0)), score.get("total", 0)) for score in self.final_scores)
+        return lookup.get(0, 0), lookup.get(1, 0)
 
     def _build_columns(self):
         if self.settings["num_players"] == 4 and all("team" in score for score in self.final_scores):

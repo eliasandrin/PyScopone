@@ -21,6 +21,7 @@ class MatchCoordinator:
     STATE_ANIMATING_MOVE = "animating_move"
     STATE_AI_THINKING = "ai_thinking"
     STATE_RESOLVING = "resolving"
+    STATE_WAITING_ROUND_CONFIRM = "waiting_round_confirm"
     STATE_GAME_OVER = "game_over"
 
     def __init__(self, app: "GameApp", engine: Optional["GameEngine"], scene: "MatchScene") -> None:
@@ -51,7 +52,7 @@ class MatchCoordinator:
     def can_accept_player_input(self) -> bool:
         if self.engine is None or not self.engine.game_active:
             return False
-        if self.scene.menu_open or self.scene.deal_sequence_pending or self.scene.animations.has_active():
+        if self.scene.menu_open or self.scene.deal_sequence_pending or self.scene.animations.has_active() or self.scene.round_end_overlay_active:
             return False
         current_player = self.engine.get_current_player()
         return current_player.is_human and self.state == self.STATE_WAITING_INPUT
@@ -76,6 +77,10 @@ class MatchCoordinator:
 
     def update(self, dt: float) -> None:
         if self.engine is None or self.result_dispatched:
+            return
+
+        if self.scene.round_end_overlay_active:
+            self.state = self.STATE_WAITING_ROUND_CONFIRM
             return
 
         if self.scene.deal_sequence_pending or self.scene.animations.has_active():
@@ -138,11 +143,11 @@ class MatchCoordinator:
         self.pending_resolution_result = None
         self.state = self.STATE_RESOLVING
 
-        if move_result.get("next_round_started"):
-            self.scene.on_round_transition(move_result)
+        if move_result.get("round_ended") and not move_result.get("game_ended"):
+            self.scene.show_round_end_overlay(move_result)
             self.pending_ai_player_id = None
             self.ai_thinking_timer = 0.0
-            self.state = self.STATE_ANIMATING_MOVE
+            self.state = self.STATE_WAITING_ROUND_CONFIRM
             return
 
         if self.engine.game_active:
@@ -157,6 +162,13 @@ class MatchCoordinator:
 
         current_player = self.engine.get_current_player()
         self.state = self.STATE_WAITING_INPUT if current_player.is_human else self.STATE_AI_THINKING
+
+    def on_round_confirmed(self) -> None:
+        self.pending_ai_player_id = None
+        self.ai_thinking_timer = 0.0
+        self.pending_resolution_result = None
+        self.result_dispatched = False
+        self.state = self.STATE_ANIMATING_MOVE if self.scene.deal_sequence_pending else self.STATE_WAITING_INPUT
 
     def _play_ai_turn(self) -> None:
         if self.engine is None:
@@ -205,4 +217,6 @@ class MatchCoordinator:
             return
 
         self.result_dispatched = True
-        self.app.show_results(self.engine.final_scores, self.scene.settings, self.scene.log_messages)
+        settings = dict(self.scene.settings)
+        settings["round_history"] = list(self.engine.round_history)
+        self.app.show_results(self.engine.final_scores, settings, self.scene.log_messages)

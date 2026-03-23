@@ -8,6 +8,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from scopone.config.game import FULL_DECK
+from scopone.config.game import MODE_TOURNAMENT
 from scopone.engine.game_engine import GameEngine
 
 
@@ -57,6 +58,44 @@ class GameEngineTests(unittest.TestCase):
         self.assertEqual(len(engine.players[0].hand), 10)
         self.assertEqual(len(engine.players[1].hand), 10)
         self.assertEqual(engine.deck_remaining, [])
+
+    def test_live_tournament_scores_returns_dict(self):
+        engine = GameEngine(4, ["Tu", "AI 1", "AI 2", "AI 3"], game_mode=MODE_TOURNAMENT)
+        engine.reset()
+
+        live_scores = engine.get_live_tournament_scores()
+
+        self.assertIsInstance(live_scores, dict)
+        self.assertEqual(live_scores.get(0), 0)
+        self.assertEqual(live_scores.get(1), 0)
+
+    def test_tournament_round_end_pauses_until_next_round_is_requested(self):
+        engine = GameEngine(4, ["Tu", "AI 1", "AI 2", "AI 3"], game_mode=MODE_TOURNAMENT)
+        engine.reset()
+        initial_round = engine.round_number
+        initial_dealer = engine.dealer_idx
+
+        # Force a deterministic end-round state with low points so nobody reaches 21.
+        engine.table = []
+        for player in engine.players:
+            player.hand = []
+            player.captured = []
+            player.sweeps = 0
+        engine.players[0].captured = [(7, "Denari")]
+
+        summary = engine.end_game()
+
+        self.assertFalse(summary["next_round_started"])
+        self.assertFalse(engine.game_active)
+        self.assertEqual(engine.round_number, initial_round)
+        self.assertEqual(engine.dealer_idx, initial_dealer)
+        self.assertEqual(len(engine.round_history), 1)
+
+        engine.start_next_round()
+
+        self.assertTrue(engine.game_active)
+        self.assertEqual(engine.round_number, initial_round + 1)
+        self.assertEqual(engine.dealer_idx, (initial_dealer - 1) % engine.num_players)
 
 
 if __name__ == "__main__":
