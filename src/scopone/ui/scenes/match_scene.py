@@ -291,6 +291,10 @@ class MatchScene(Scene):
         self._queue_move_sequence(current_player, selected_card, source_rect, captured_cards, captured_rects, self.engine.last_move_result)
 
     def _queue_move_sequence(self, player, card, source_rect, captured_cards, captured_rects, move_result) -> None:
+        # Nasconde subitissimo le nuove carte ri-distribuite prima del volo animato della carta giocata.
+        if move_result is not None and move_result.get("restocked"):
+            self._prepare_restock_visibility()
+
         if source_rect is None or self.last_layout is None or move_result is None:
             self._after_move_animations(move_result)
             return
@@ -409,7 +413,6 @@ class MatchScene(Scene):
             return
 
         if move_result.get("restocked") and self.last_layout is not None:
-            self._prepare_restock_visibility()
             self._schedule_deal_sequence(
                 self.last_layout,
                 include_table=False,
@@ -747,10 +750,17 @@ class MatchScene(Scene):
         renderer.surface.blit(table_surface, rect.topleft)
         renderer.draw_text("Tavolo", (rect.centerx, rect.top + 14), size=24, bold=True, align="center")
 
+    def _should_draw_deck_anchor(self) -> bool:
+        if self.engine.num_players != 2:
+            return False
+        if self.engine.deck_remaining:
+            return True
+        return any(self.hidden_hand_cards.get(player.id) for player in self.engine.players)
+
     def _draw_deck_anchor(self, renderer, deck_rect: pygame.Rect) -> None:
         # Draw the deck anchor only in 2-player mode.
         # Using animations.has_active() here caused a ghost card-back during play tweens.
-        if self.engine.num_players == 2:
+        if self._should_draw_deck_anchor():
             renderer.draw_card((1, "Denari"), deck_rect, face_up=False)
 
     def _draw_table_cards(self, renderer, table_rect: pygame.Rect) -> None:
