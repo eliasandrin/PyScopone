@@ -1,7 +1,11 @@
 """Shared domain types."""
 
-from typing import Tuple
+from typing import Literal, Tuple
 
-Card = Tuple[int, str]
+CardValue = Literal[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+Suit = Literal["Denari", "Coppe", "Bastoni", "Spade"]
+TeamId = Literal[0, 1]
 
-__all__ = ["Card"]
+Card = Tuple[CardValue, Suit]
+
+__all__ = ["Card", "CardValue", "Suit", "TeamId"]

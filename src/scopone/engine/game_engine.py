@@ -1,9 +1,11 @@
 """Core Scopone game engine."""
 
 import random
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from scopone.config.game import (
+    CARD_VALUE_MAX,
+    CARD_VALUE_MIN,
     INITIAL_HAND_CARDS,
     INITIAL_TABLE_CARDS_BY_MODE,
     MAX_PLAYERS,
@@ -11,6 +13,7 @@ from scopone.config.game import (
     MODE_QUICK,
     MODE_TOURNAMENT,
     SEMI,
+    TEAM_IDS,
     TARGET_SCORE_TOURNAMENT,
     TEAM_A_PLAYERS,
 )
@@ -22,7 +25,7 @@ from scopone.types import Card
 class GameEngine:
     """Main game engine for Scopone card game."""
 
-    def __init__(self, num_players=4, player_names=None, game_mode: str = MODE_QUICK):
+    def __init__(self, num_players: int = 4, player_names: Optional[List[str]] = None, game_mode: str = MODE_QUICK) -> None:
         self.num_players = min(max(num_players, MIN_PLAYERS), MAX_PLAYERS)
         self.game_mode = game_mode if game_mode in (MODE_QUICK, MODE_TOURNAMENT) else MODE_QUICK
         self.target_score = TARGET_SCORE_TOURNAMENT
@@ -50,10 +53,10 @@ class GameEngine:
         self.dealer_idx = random.randint(0, self.num_players - 1)
         self.tournament_scores = self._build_empty_session_scores()
 
-    def _create_deck(self):
-        return [(value, suit) for suit in SEMI for value in range(1, 11)]
+    def _create_deck(self) -> List[Card]:
+        return [(value, suit) for suit in SEMI for value in range(CARD_VALUE_MIN, CARD_VALUE_MAX + 1)]
 
-    def _initialize_players(self, player_names):
+    def _initialize_players(self, player_names: Optional[List[str]]) -> None:
         self.players = []
         for index in range(self.num_players):
             name = player_names[index] if player_names and index < len(player_names) else f"Giocatore {index + 1}"
@@ -255,8 +258,8 @@ class GameEngine:
         self.reset(preserve_session=True)
         self.deal_cards()
 
-    def _build_empty_session_scores(self) -> Dict[int, Dict]:
-        entries = []
+    def _build_empty_session_scores(self) -> Dict[int, Dict[str, Any]]:
+        entries: List[Dict[str, Any]] = []
         if self.num_players == 4 and all(player.team is not None for player in self.players):
             entries = [
                 self._create_session_entry(
@@ -265,7 +268,7 @@ class GameEngine:
                     members=[player.name for player in self.players if player.team == team_id],
                     team_id=team_id,
                 )
-                for team_id in (0, 1)
+                for team_id in TEAM_IDS
             ]
         else:
             entries = [
@@ -280,7 +283,7 @@ class GameEngine:
 
         return dict((entry["team_id"], entry) for entry in entries)
 
-    def _create_session_entry(self, entity_id: int, player_name: str, members, team_id: int) -> Dict:
+    def _create_session_entry(self, entity_id: int, player_name: str, members: List[str], team_id: int) -> Dict[str, Any]:
         return {
             "entity_id": entity_id,
             "team_id": team_id,
@@ -299,7 +302,7 @@ class GameEngine:
             "total": 0,
         }
 
-    def _accumulate_tournament_scores(self, round_scores: List[Dict]) -> None:
+    def _accumulate_tournament_scores(self, round_scores: List[Dict[str, Any]]) -> None:
         score_lookup = self.tournament_scores
         for round_score in round_scores:
             team_id = round_score["team_id"]
@@ -330,7 +333,7 @@ class GameEngine:
             cumulative_score["total_score"] += round_score.get("total_score", round_score.get("total", 0))
             cumulative_score["total"] = cumulative_score["total_score"]
 
-    def _get_sorted_tournament_scores(self) -> List[Dict]:
+    def _get_sorted_tournament_scores(self) -> List[Dict[str, Any]]:
         return sorted(
             [self._clone_score_entry(score) for score in self.tournament_scores.values()],
             key=lambda score: score.get("total_score", score.get("total", 0)),
@@ -342,7 +345,7 @@ class GameEngine:
             return False
         return max(score.get("total_score", score.get("total", 0)) for score in self.tournament_scores.values()) >= self.target_score
 
-    def _record_round_history(self, scores: List[Dict], session_complete: bool) -> None:
+    def _record_round_history(self, scores: List[Dict[str, Any]], session_complete: bool) -> None:
         winners = ScoringEngine.get_game_winners(scores)
         self.round_history.append(
             {
@@ -361,7 +364,7 @@ class GameEngine:
     def _previous_turn_index(self, index: int) -> int:
         return (index - 1) % self.num_players
 
-    def _clone_score_entry(self, score: Dict) -> Dict:
+    def _clone_score_entry(self, score: Dict[str, Any]) -> Dict[str, Any]:
         cloned = dict(score)
         if "members" in cloned:
             cloned["members"] = list(cloned["members"])
@@ -373,7 +376,7 @@ class GameEngine:
             cloned["points"] = dict(cloned["points"])
         return cloned
 
-    def _clone_scores(self, scores: List[Dict]) -> List[Dict]:
+    def _clone_scores(self, scores: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         return [self._clone_score_entry(score) for score in scores]
 
     def get_game_state(self) -> dict:

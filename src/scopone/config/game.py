@@ -5,6 +5,11 @@ from typing import List
 from scopone.types import Card
 
 SEMI = ["Denari", "Coppe", "Bastoni", "Spade"]
+CARD_VALUE_MIN = 1
+CARD_VALUE_MAX = 10
+DENARI_SUIT = "Denari"
+SETTEBELLO_VALUE = 7
+SETTEBELLO_CARD = (SETTEBELLO_VALUE, DENARI_SUIT)
 SIMBOLI = {
     "Denari": "\u2666",
     "Coppe": "\u2665",
@@ -44,6 +49,7 @@ INITIAL_TABLE_CARDS_BY_MODE = {
 
 TEAM_A_PLAYERS = {0, 2}
 TEAM_B_PLAYERS = {1, 3}
+TEAM_IDS = (0, 1)
 
 POINTS_FOR_MOST_CARDS = 1
 POINTS_FOR_MOST_COINS = 1
@@ -63,5 +69,5 @@ DEFAULT_PLAYER_NAMES = ["Tu", "AI 1", "AI 2", "AI 3", "AI 4", "AI 5"]
 FULL_DECK = [
     (value, suit)
     for suit in SEMI
-    for value in range(1, 11)
+    for value in range(CARD_VALUE_MIN, CARD_VALUE_MAX + 1)
 ]  # type: List[Card]

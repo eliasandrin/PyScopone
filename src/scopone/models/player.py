@@ -1,7 +1,10 @@
 """Player domain model."""
 
-from typing import Iterable, List, Optional, Union
+from __future__ import annotations
 
+from typing import Iterable, Optional, Union
+
+from scopone.config.game import DENARI_SUIT, SETTEBELLO_CARD
 from scopone.types import Card
 
 
@@ -16,16 +19,16 @@ class Player:
         is_human: bool = False,
         team: Optional[int] = None,
     ) -> None:
-        self.id = player_id
-        self.name = name
-        self.hand = []  # type: List[Card]
-        self.captured = []  # type: List[Card]
-        self.sweeps = 0
-        self.total_points = 0
-        self.primiera_point = 0
-        self.is_ai = is_ai
-        self.is_human = is_human
-        self.team = team
+        self.id: int = player_id
+        self.name: str = name
+        self.hand: list[Card] = []
+        self.captured: list[Card] = []
+        self.sweeps: int = 0
+        self.total_points: int = 0
+        self.primiera_point: int = 0
+        self.is_ai: bool = is_ai
+        self.is_human: bool = is_human
+        self.team: Optional[int] = team
 
     def reset(self) -> None:
         self.hand = []
@@ -66,10 +69,10 @@ class Player:
         return len(self.captured)
 
     def count_coins(self) -> int:
-        return len([card for card in self.captured if card[1] == "Denari"])
+        return sum(1 for card in self.captured if card[1] == DENARI_SUIT)
 
     def has_settebello(self) -> bool:
-        return (7, "Denari") in self.captured
+        return SETTEBELLO_CARD in self.captured
 
     def __repr__(self) -> str:
         player_type = "AI" if self.is_ai else "Human"
