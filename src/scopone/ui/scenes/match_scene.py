@@ -1,6 +1,6 @@
 import pygame
 
-from scopone.config.game import DEFAULT_PLAYER_NAMES, INITIAL_HAND_CARDS, SIMBOLI
+from scopone.config.game import DEFAULT_PLAYER_NAMES, INITIAL_HAND_CARDS, MODE_QUICK, SIMBOLI, TARGET_SCORE_TOURNAMENT
 from scopone.config.ui import (
     CARD_SIZE_HAND,
     CARD_SIZE_SMALL,
@@ -40,6 +40,7 @@ CAPTURE_PILE_GAP = 40
 CAPTURE_PILE_STACK_STEP = 3
 CAPTURE_PILE_BUMP_DURATION = 0.10
 CAPTURE_PILE_BUMP_SCALE = 1.05
+ROUND_NOTICE_DURATION = 2.6
 
 
 class MatchScene(Scene):
@@ -48,6 +49,7 @@ class MatchScene(Scene):
     def __init__(self, app, settings: dict) -> None:
         super().__init__(app)
         self.settings = dict(settings)
+        self.settings.setdefault("game_mode", MODE_QUICK)
         self.engine = None
         self.log_messages = []
         self.card_hitboxes = []
@@ -71,18 +73,26 @@ class MatchScene(Scene):
         self.capture_pile_bump = {0: 0.0, 1: 0.0}
         self.last_layout = None
         self.deal_sequence_pending = False
+        self.round_notice_message = ""
+        self.round_notice_timer = 0.0
         self.coordinator = MatchCoordinator(self.app, self.engine, self)
 
         self._start_new_game()
 
     def _start_new_game(self) -> None:
         player_names = [DEFAULT_PLAYER_NAMES[index] if index > 0 else "Tu" for index in range(self.settings["num_players"])]
-        self.engine = GameEngine(self.settings["num_players"], player_names)
+        self.engine = GameEngine(
+            self.settings["num_players"],
+            player_names,
+            game_mode=self.settings["game_mode"],
+        )
         self.engine.reset()
         self.engine.deal_cards()
+        mode_text = "Partita Rapida" if self.settings["game_mode"] == MODE_QUICK else "Torneo a {0} punti".format(TARGET_SCORE_TOURNAMENT)
         self.log_messages = [
             "Nuova partita avviata.",
             "Modalita: {0} giocatori".format(self.settings["num_players"]),
+            "Formato: {0}".format(mode_text),
             "Difficolta AI: {0}".format(self.settings["difficulty"]),
         ]
         self.menu_open = False
@@ -94,6 +104,8 @@ class MatchScene(Scene):
         self.capture_pile_targets = {}
         self.capture_pile_rects = {}
         self.capture_pile_bump = {0: 0.0, 1: 0.0}
+        self.round_notice_message = ""
+        self.round_notice_timer = 0.0
         self.render_board = RenderBoard.from_engine(self.engine)
         self.deal_sequence_pending = True
         self.coordinator.bind_engine(self.engine)
@@ -215,7 +227,42 @@ class MatchScene(Scene):
         self.animations.update(dt)
         for team_id in list(self.capture_pile_bump.keys()):
             self.capture_pile_bump[team_id] = max(0.0, self.capture_pile_bump[team_id] - dt)
+        self.round_notice_timer = max(0.0, self.round_notice_timer - dt)
+        if self.round_notice_timer <= 0.0:
+            self.round_notice_message = ""
         self.coordinator.update(dt)
+
+    def on_round_transition(self, move_result) -> None:
+        if self.engine is None:
+            return
+
+        round_completed = max(1, self.engine.round_number - 1)
+        self.round_notice_message = "Fine round {0}. Nuova smazzata in corso...".format(round_completed)
+        self.round_notice_timer = ROUND_NOTICE_DURATION
+        self._append_log(self.round_notice_message)
+
+        tournament_scores = move_result.get("tournament_scores", []) if move_result is not None else []
+        if tournament_scores:
+            leaderboard = ", ".join(
+                "{0}: {1}".format(score.get("player", "Squadra"), score.get("total", 0))
+                for score in tournament_scores
+            )
+            self._append_log("Punteggi torneo: {0}".format(leaderboard))
+
+        self.render_board = RenderBoard.from_engine(self.engine)
+        self.card_hitboxes = []
+        self.card_position_map = {"hands": {}, "table": {}}
+        self.capture_pile_bump = {0: 0.0, 1: 0.0}
+
+        if self.last_layout is None:
+            self.deal_sequence_pending = True
+            return
+
+        self._schedule_deal_sequence(
+            self.last_layout,
+            include_table=True,
+            only_player_ids=[player.id for player in self.engine.players],
+        )
 
     def _queue_move_sequence(self, player, card, source_rect, captured_cards, captured_rects, move_result) -> None:
         if self.render_board is not None:
@@ -402,6 +449,9 @@ class MatchScene(Scene):
 
         if self.log_visible:
             self._draw_log_overlay(renderer)
+
+        if self.round_notice_message:
+            self._draw_round_notice(renderer)
 
         if self.menu_open:
             self._draw_menu_overlay(renderer, layout["overlay_rect"], mouse_pos)
@@ -980,6 +1030,25 @@ class MatchScene(Scene):
                 break
             row = renderer.draw_text(message, (line_area.left, y), size=15, color=TEXT_DIM_COLOR)
             y = row.bottom + 6
+
+    def _draw_round_notice(self, renderer) -> None:
+        notice_width = self._clamp(int(renderer.surface.get_width() * 0.52), 520, 980)
+        notice_height = self._clamp(int(renderer.surface.get_height() * 0.10), 78, 118)
+        notice_rect = pygame.Rect(
+            (renderer.surface.get_width() - notice_width) // 2,
+            self._clamp(int(renderer.surface.get_height() * 0.06), 56, 92),
+            notice_width,
+            notice_height,
+        )
+        self._draw_glass_panel(renderer, notice_rect, PANEL_COLOR, HIGHLIGHT_COLOR, alpha=216)
+        renderer.draw_text(
+            self.round_notice_message,
+            notice_rect.center,
+            size=self._clamp(int(renderer.surface.get_width() * 0.016), 20, 30),
+            color=TEXT_COLOR,
+            bold=True,
+            align="center",
+        )
 
     def _ensure_log_rect(self, width: int, height: int) -> None:
         if self.log_rect is None:

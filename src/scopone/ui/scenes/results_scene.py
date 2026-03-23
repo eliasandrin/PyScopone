@@ -1,7 +1,7 @@
 import pygame
 
-from scopone.config.game import DEFAULT_PLAYER_NAMES
-from scopone.config.ui import ACCENT_COLOR, SUCCESS_COLOR, TEXT_COLOR, TEXT_DIM_COLOR, WARNING_COLOR
+from scopone.config.game import DEFAULT_PLAYER_NAMES, MODE_QUICK, MODE_TOURNAMENT, TARGET_SCORE_TOURNAMENT
+from scopone.config.ui import TEXT_COLOR, TEXT_DIM_COLOR
 from scopone.ui.backgrounds import draw_prismatic_background
 from scopone.ui.scene_manager import Scene
 
@@ -22,6 +22,7 @@ class ResultsScene(Scene):
         super().__init__(app)
         self.final_scores = list(final_scores)
         self.settings = dict(settings)
+        self.settings.setdefault("game_mode", MODE_QUICK)
         self.log_messages = list(log_messages)
         self.buttons = {}
         self.audio_button_rect = pygame.Rect(0, 0, 0, 0)
@@ -46,6 +47,7 @@ class ResultsScene(Scene):
                     self.settings["num_players"],
                     self.settings["difficulty"],
                     self.settings["show_all_cards"],
+                    self.settings.get("game_mode", MODE_QUICK),
                 )
             elif action == "menu":
                 self.app.show_setup()
@@ -69,7 +71,7 @@ class ResultsScene(Scene):
         renderer.surface.blit(dimmer, (0, 0))
 
         renderer.draw_text(
-            "RISULTATI PARTITA",
+            self._build_title(),
             layout["title_center"],
             size=layout["title_size"],
             color=TEXT_COLOR,
@@ -101,12 +103,18 @@ class ResultsScene(Scene):
             "normale": "Normale",
             "esperto": "Esperto",
         }
+        mode_label = "Partita Rapida" if self.settings.get("game_mode") == MODE_QUICK else "Torneo a {0} punti".format(TARGET_SCORE_TOURNAMENT)
         match_type = "Partita a {0} giocatori".format(self.settings["num_players"])
         difficulty = "Difficolta: {0}".format(
             difficulty_labels.get(self.settings["difficulty"], self.settings["difficulty"])
         )
         visibility = "Carte IA: {0}".format("Visibili" if self.settings["show_all_cards"] else "Nascoste")
-        return "{0} | {1} | {2}".format(match_type, difficulty, visibility)
+        return "{0} | {1} | {2} | {3}".format(match_type, mode_label, difficulty, visibility)
+
+    def _build_title(self) -> str:
+        if self.settings.get("game_mode") == MODE_TOURNAMENT:
+            return "HA VINTO IL TORNEO A 21 PUNTI!"
+        return "RISULTATI PARTITA"
 
     def _build_columns(self):
         if self.settings["num_players"] == 4 and all("team" in score for score in self.final_scores):
@@ -139,6 +147,7 @@ class ResultsScene(Scene):
         ]
 
     def _build_team_column(self, team_id: int, score: dict):
+        total_label = "Punti Torneo" if self.settings.get("game_mode") == MODE_TOURNAMENT else "Punti Totali"
         members = score.get("members") or []
         return {
             "team_id": team_id,
@@ -151,12 +160,13 @@ class ResultsScene(Scene):
                 ("Settebello", "Si" if score.get("has_settebello") else "No"),
                 ("Primiera", score.get("primiera_value", 0)),
                 ("Scope", score.get("sweeps", 0)),
-                ("Punti Totali", score.get("total", 0)),
+                (total_label, score.get("total", 0)),
             ],
             "total": score.get("total", 0),
         }
 
     def _build_player_column(self, team_id: int, score: dict, fallback_name: str):
+        total_label = "Punti Torneo" if self.settings.get("game_mode") == MODE_TOURNAMENT else "Punti Totali"
         player_name = score.get("player", fallback_name)
         return {
             "team_id": team_id,
@@ -169,7 +179,7 @@ class ResultsScene(Scene):
                 ("Settebello", "Si" if score.get("has_settebello") else "No"),
                 ("Primiera", score.get("primiera_value", 0)),
                 ("Scope", score.get("sweeps", 0)),
-                ("Punti Totali", score.get("total", 0)),
+                (total_label, score.get("total", 0)),
             ],
             "total": score.get("total", 0),
         }
@@ -194,7 +204,7 @@ class ResultsScene(Scene):
         stats_y = top_y + layout["stats_start_offset"]
         total_rect = None
         for label, value in column["stats"]:
-            is_total = label == "Punti Totali"
+            is_total = label in ("Punti Totali", "Punti Torneo")
             row_rect = renderer.draw_text(
                 "{0}: {1}".format(label, value),
                 (center_x, stats_y),

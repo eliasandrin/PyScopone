@@ -31,12 +31,14 @@ class MatchCoordinator:
         self.pending_ai_player_id = None
         self.ai_thinking_timer = 0.0
         self.result_dispatched = False
+        self.pending_resolution_result = None
 
     def bind_engine(self, engine: Optional["GameEngine"]) -> None:
         self.engine = engine
         self.pending_ai_player_id = None
         self.ai_thinking_timer = 0.0
         self.result_dispatched = False
+        self.pending_resolution_result = None
         if engine is None:
             self.state = self.STATE_WAITING_INPUT
         elif self.scene.deal_sequence_pending:
@@ -114,6 +116,7 @@ class MatchCoordinator:
         if self.engine is None or move_result is None:
             return
 
+        self.pending_resolution_result = move_result
         self.state = self.STATE_RESOLVING
         if move_result.get("restocked") and self.scene.last_layout is not None:
             self.state = self.STATE_ANIMATING_MOVE
@@ -131,7 +134,17 @@ class MatchCoordinator:
         if self.engine is None:
             return
 
+        move_result = self.pending_resolution_result or {}
+        self.pending_resolution_result = None
         self.state = self.STATE_RESOLVING
+
+        if move_result.get("next_round_started"):
+            self.scene.on_round_transition(move_result)
+            self.pending_ai_player_id = None
+            self.ai_thinking_timer = 0.0
+            self.state = self.STATE_ANIMATING_MOVE
+            return
+
         if self.engine.game_active:
             self.engine.next_player()
         self.pending_ai_player_id = None

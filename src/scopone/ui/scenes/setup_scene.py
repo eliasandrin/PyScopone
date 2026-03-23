@@ -1,5 +1,6 @@
 import pygame
 
+from scopone.config.game import MODE_QUICK, MODE_TOURNAMENT
 from scopone.config.ui import ACCENT_COLOR, BG_COLOR, TEXT_COLOR, TEXT_DIM_COLOR
 from scopone.ui.backgrounds import draw_prismatic_background
 from scopone.ui.scene_manager import Scene
@@ -16,8 +17,13 @@ class SetupScene(Scene):
             ("Esperto", "esperto"),
         ]
         self.player_options = [2, 4]
+        self.game_modes = [
+            ("Partita Rapida (1 Smazzata)", MODE_QUICK),
+            ("Torneo a punti (A 21 Punti)", MODE_TOURNAMENT),
+        ]
         self.difficulty_index = 1
         self.player_index = 1
+        self.game_mode_index = 0
         self.show_all_cards = True
         self.buttons = {}
         self.audio_button_rect = pygame.Rect(0, 0, 0, 0)
@@ -38,11 +44,19 @@ class SetupScene(Scene):
                 self.difficulty_index = (self.difficulty_index + 1) % len(self.difficulties)
             elif action == "players":
                 self.player_index = (self.player_index + 1) % len(self.player_options)
+            elif action == "game_mode":
+                self.game_mode_index = (self.game_mode_index + 1) % len(self.game_modes)
             elif action == "visibility":
                 self.show_all_cards = not self.show_all_cards
             elif action == "start":
                 _, difficulty = self.difficulties[self.difficulty_index]
-                self.app.start_match(self.player_options[self.player_index], difficulty, self.show_all_cards)
+                _, game_mode = self.game_modes[self.game_mode_index]
+                self.app.start_match(
+                    self.player_options[self.player_index],
+                    difficulty,
+                    self.show_all_cards,
+                    game_mode,
+                )
             elif action == "quit":
                 self.app.request_quit()
             break
@@ -75,6 +89,7 @@ class SetupScene(Scene):
         )
 
         difficulty_label, _ = self.difficulties[self.difficulty_index]
+        game_mode_label, _ = self.game_modes[self.game_mode_index]
         visibility_label = "Carte IA: Visibili" if self.show_all_cards else "Carte IA: Nascoste"
 
         self.buttons = {
@@ -90,6 +105,13 @@ class SetupScene(Scene):
                 layout["players_button"],
                 hovered=layout["players_button"].collidepoint(mouse_pos),
                 tone="neutral",
+                font_size=layout["config_font_size"],
+            ),
+            "game_mode": renderer.draw_button(
+                "Modalita: {0}".format(game_mode_label),
+                layout["game_mode_button"],
+                hovered=layout["game_mode_button"].collidepoint(mouse_pos),
+                tone="accent",
                 font_size=layout["config_font_size"],
             ),
             "visibility": renderer.draw_button(
@@ -150,12 +172,16 @@ class SetupScene(Scene):
         players_x = width // 2 - players_width // 2
         players_y = top_row_y + button_height + self._clamp(int(height * 0.03), 20, 28)
 
+        mode_width = min(int(width * 0.58), 900)
+        mode_x = width // 2 - mode_width // 2
+        mode_y = players_y + button_height + self._clamp(int(height * 0.024), 16, 24)
+
         action_pair_width = min(int(width * 0.42), 620)
         action_gap = self._clamp(int(width * 0.018), 18, 28)
         action_button_width = int((action_pair_width - action_gap) / 2)
         action_height = self._clamp(int(height * 0.09), 64, 80)
         action_left = width // 2 - action_pair_width // 2
-        action_y = players_y + button_height + self._clamp(int(height * 0.08), 54, 86)
+        action_y = mode_y + button_height + self._clamp(int(height * 0.065), 44, 78)
 
         return {
             "title_center": title_center,
@@ -181,6 +207,12 @@ class SetupScene(Scene):
                 players_x,
                 players_y,
                 players_width,
+                button_height,
+            ),
+            "game_mode_button": pygame.Rect(
+                mode_x,
+                mode_y,
+                mode_width,
                 button_height,
             ),
             "start_button": pygame.Rect(

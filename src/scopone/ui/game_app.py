@@ -4,6 +4,7 @@ os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 
 import pygame
 
+from scopone.config.game import MODE_QUICK
 from scopone.config.ui import FPS, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE, WINDOW_WIDTH
 from scopone.ui.audio import AudioManager
 from scopone.ui.assets import AssetManager
@@ -48,7 +49,13 @@ class GameApp:
 
         self.scene_manager.change(SetupScene(self))
 
-    def start_match(self, num_players: int, difficulty: str, show_all_cards: bool) -> None:
+    def start_match(
+        self,
+        num_players: int,
+        difficulty: str,
+        show_all_cards: bool,
+        game_mode: str = MODE_QUICK,
+    ) -> None:
         from scopone.ui.scenes.match_scene import MatchScene
 
         self.scene_manager.change(
@@ -58,6 +65,7 @@ class GameApp:
                     "num_players": num_players,
                     "difficulty": difficulty,
                     "show_all_cards": show_all_cards,
+                    "game_mode": game_mode,
                 },
             )
         )
