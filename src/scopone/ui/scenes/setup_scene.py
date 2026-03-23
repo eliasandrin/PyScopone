@@ -161,27 +161,20 @@ class SetupScene(Scene):
         title_center = (width // 2, int(height * 0.18))
 
         config_heading = (width // 2, int(height * 0.34))
-        pair_width = min(int(width * 0.58), 900)
-        pair_gap = self._clamp(int(width * 0.02), 18, 30)
+        pair_gap = self._clamp(int(width * 0.02), 16, 26)
         button_height = self._clamp(int(height * 0.085), 62, 82)
-        pair_button_width = int((pair_width - pair_gap) / 2)
+        selection_button_width = self._clamp(int(width * 0.28), 320, 500)
+        pair_width = (selection_button_width * 2) + pair_gap
         pair_left = width // 2 - pair_width // 2
         top_row_y = int(height * 0.42)
-
-        players_width = min(int(width * 0.32), 420)
-        players_x = width // 2 - players_width // 2
-        players_y = top_row_y + button_height + self._clamp(int(height * 0.03), 20, 28)
-
-        mode_width = min(int(width * 0.58), 900)
-        mode_x = width // 2 - mode_width // 2
-        mode_y = players_y + button_height + self._clamp(int(height * 0.024), 16, 24)
+        second_row_y = top_row_y + button_height + self._clamp(int(height * 0.03), 20, 28)
 
         action_pair_width = min(int(width * 0.42), 620)
         action_gap = self._clamp(int(width * 0.018), 18, 28)
         action_button_width = int((action_pair_width - action_gap) / 2)
         action_height = self._clamp(int(height * 0.09), 64, 80)
         action_left = width // 2 - action_pair_width // 2
-        action_y = mode_y + button_height + self._clamp(int(height * 0.065), 44, 78)
+        action_y = second_row_y + button_height + self._clamp(int(height * 0.065), 44, 78)
 
         return {
             "title_center": title_center,
@@ -194,25 +187,25 @@ class SetupScene(Scene):
             "difficulty_button": pygame.Rect(
                 pair_left,
                 top_row_y,
-                pair_button_width,
+                selection_button_width,
                 button_height,
             ),
             "visibility_button": pygame.Rect(
-                pair_left + pair_button_width + pair_gap,
+                pair_left + selection_button_width + pair_gap,
                 top_row_y,
-                pair_button_width,
+                selection_button_width,
                 button_height,
             ),
             "players_button": pygame.Rect(
-                players_x,
-                players_y,
-                players_width,
+                pair_left,
+                second_row_y,
+                selection_button_width,
                 button_height,
             ),
             "game_mode_button": pygame.Rect(
-                mode_x,
-                mode_y,
-                mode_width,
+                pair_left + selection_button_width + pair_gap,
+                second_row_y,
+                selection_button_width,
                 button_height,
             ),
             "start_button": pygame.Rect(

@@ -75,6 +75,7 @@ class MatchScene(Scene):
         self.deal_sequence_pending = False
         self.round_end_overlay_active = False
         self.round_end_overlay_rows = []
+        self.round_end_overlay_result = {}
         self.round_end_prompt_visible = True
         self.round_end_prompt_timer = 0.0
         self.coordinator = MatchCoordinator(self.app, self.engine, self)
@@ -108,6 +109,7 @@ class MatchScene(Scene):
         self.capture_pile_bump = {0: 0.0, 1: 0.0}
         self.round_end_overlay_active = False
         self.round_end_overlay_rows = []
+        self.round_end_overlay_result = {}
         self.round_end_prompt_visible = True
         self.round_end_prompt_timer = 0.0
         self.render_board = RenderBoard.from_engine(self.engine)
@@ -254,6 +256,7 @@ class MatchScene(Scene):
         self.round_end_overlay_active = True
         self.round_end_prompt_visible = True
         self.round_end_prompt_timer = 0.0
+        self.round_end_overlay_result = dict(move_result or {})
         self.round_end_overlay_rows = self._build_round_overlay_rows(move_result.get("round_scores", []))
         self._append_log("Fine smazzata. Premi INVIO per continuare.")
 
@@ -261,10 +264,17 @@ class MatchScene(Scene):
         if self.engine is None or not self.round_end_overlay_active:
             return
 
+        move_result = dict(self.round_end_overlay_result)
+
         self.round_end_overlay_active = False
         self.round_end_overlay_rows = []
+        self.round_end_overlay_result = {}
         self.round_end_prompt_visible = True
         self.round_end_prompt_timer = 0.0
+
+        if move_result.get("game_ended"):
+            self.coordinator.on_round_confirmed(move_result)
+            return
 
         self.engine.start_next_round()
         self.render_board = RenderBoard.from_engine(self.engine)
@@ -275,7 +285,7 @@ class MatchScene(Scene):
         self.capture_pile_bump = {0: 0.0, 1: 0.0}
         self.animations.clear()
         self.deal_sequence_pending = True
-        self.coordinator.on_round_confirmed()
+        self.coordinator.on_round_confirmed(move_result)
 
     def _build_round_overlay_rows(self, round_scores):
         rows = []

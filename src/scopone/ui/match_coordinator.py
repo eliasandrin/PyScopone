@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Optional, TYPE_CHECKING
 
 from scopone.ai.strategies import get_ai_strategy
+from scopone.config.game import MODE_TOURNAMENT
 from scopone.config.ui import AI_THINKING_DELAY_MS
 
 if TYPE_CHECKING:
@@ -143,7 +144,7 @@ class MatchCoordinator:
         self.pending_resolution_result = None
         self.state = self.STATE_RESOLVING
 
-        if move_result.get("round_ended") and not move_result.get("game_ended"):
+        if self.scene.settings.get("game_mode") == MODE_TOURNAMENT and move_result.get("round_ended"):
             self.scene.show_round_end_overlay(move_result)
             self.pending_ai_player_id = None
             self.ai_thinking_timer = 0.0
@@ -163,11 +164,17 @@ class MatchCoordinator:
         current_player = self.engine.get_current_player()
         self.state = self.STATE_WAITING_INPUT if current_player.is_human else self.STATE_AI_THINKING
 
-    def on_round_confirmed(self) -> None:
+    def on_round_confirmed(self, move_result) -> None:
         self.pending_ai_player_id = None
         self.ai_thinking_timer = 0.0
         self.pending_resolution_result = None
         self.result_dispatched = False
+
+        if move_result.get("game_ended"):
+            self.state = self.STATE_GAME_OVER
+            self._dispatch_results()
+            return
+
         self.state = self.STATE_ANIMATING_MOVE if self.scene.deal_sequence_pending else self.STATE_WAITING_INPUT
 
     def _play_ai_turn(self) -> None:

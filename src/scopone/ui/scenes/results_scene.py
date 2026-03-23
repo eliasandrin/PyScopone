@@ -88,16 +88,6 @@ class ResultsScene(Scene):
             align="center",
         )
 
-        if self.settings.get("game_mode") == MODE_TOURNAMENT:
-            self._draw_tournament_summary(renderer, layout)
-            self._draw_actions(renderer, layout, mouse_pos)
-            renderer.draw_audio_toggle(
-                layout["audio_button"],
-                muted=self.app.is_muted,
-                hovered=layout["audio_button"].collidepoint(mouse_pos),
-            )
-            return
-
         left_metrics = self._draw_column(renderer, columns[0], layout["left_center_x"], layout["columns_top"], layout)
         right_metrics = self._draw_column(renderer, columns[1], layout["right_center_x"], layout["columns_top"], layout)
         self._draw_winner(renderer, columns, left_metrics, right_metrics, layout)
@@ -126,48 +116,6 @@ class ResultsScene(Scene):
         if self.settings.get("game_mode") == MODE_TOURNAMENT:
             return "HA VINTO IL TORNEO A 21 PUNTI!"
         return "RISULTATI PARTITA"
-
-    def _draw_tournament_summary(self, renderer, layout: dict) -> None:
-        panel_rect = pygame.Rect(
-            layout["screen_center_x"] - 520,
-            layout["columns_top"] - 26,
-            1040,
-            500,
-        )
-        panel_rect.width = min(panel_rect.width, renderer.surface.get_width() - 120)
-        panel_rect.left = (renderer.surface.get_width() - panel_rect.width) // 2
-        panel_rect.height = min(panel_rect.height, renderer.surface.get_height() - 300)
-
-        shade = pygame.Surface(panel_rect.size, pygame.SRCALPHA)
-        shade.fill((15, 28, 48, 220))
-        renderer.surface.blit(shade, panel_rect.topleft)
-        pygame.draw.rect(renderer.surface, (130, 170, 220), panel_rect, width=2, border_radius=8)
-
-        renderer.draw_text("Riepilogo Smazzate", (panel_rect.centerx, panel_rect.top + 16), size=30, bold=True, align="midtop")
-
-        header_y = panel_rect.top + 66
-        col_round_x = panel_rect.left + 170
-        col_team1_x = panel_rect.centerx - 90
-        col_team2_x = panel_rect.centerx + 90
-        renderer.draw_text("Round", (col_round_x, header_y), size=21, color=TEXT_DIM_COLOR, align="center")
-        renderer.draw_text("Sq 1", (col_team1_x, header_y), size=21, color=TEAM_COLORS[0], align="center")
-        renderer.draw_text("Sq 2", (col_team2_x, header_y), size=21, color=TEAM_COLORS[1], align="center")
-
-        round_rows = self._extract_round_rows()
-        available_rows = max(1, (panel_rect.height - 180) // 34)
-        visible_rows = round_rows[-available_rows:]
-
-        y = header_y + 38
-        for round_number, team1_total, team2_total in visible_rows:
-            renderer.draw_text("Round {0}".format(round_number), (col_round_x, y), size=20, color=TEXT_COLOR, align="center")
-            renderer.draw_text(str(team1_total), (col_team1_x, y), size=21, color=TEXT_COLOR, bold=True, align="center")
-            renderer.draw_text(str(team2_total), (col_team2_x, y), size=21, color=TEXT_COLOR, bold=True, align="center")
-            y += 34
-
-        final_team1, final_team2 = self._extract_final_totals()
-        total_y = panel_rect.bottom - 58
-        renderer.draw_text("Totale Finale", (panel_rect.centerx - 170, total_y), size=25, color=TEXT_COLOR, bold=True, align="center")
-        renderer.draw_text("{0} - {1}".format(final_team1, final_team2), (panel_rect.centerx + 90, total_y), size=30, color=TEXT_COLOR, bold=True, align="center")
 
     def _extract_round_rows(self):
         rows = []
@@ -213,42 +161,74 @@ class ResultsScene(Scene):
         ]
 
     def _build_team_column(self, team_id: int, score: dict):
-        total_label = "Punti Torneo" if self.settings.get("game_mode") == MODE_TOURNAMENT else "Punti Totali"
+        is_tournament = self.settings.get("game_mode") == MODE_TOURNAMENT
         members = score.get("members") or []
+        if is_tournament:
+            stats = self._build_round_point_entries(team_id)
+            stats.append(("Totale", score.get("total", 0)))
+        else:
+            stats = [
+                ("Carte", score.get("captured_cards", 0)),
+                ("Denari", score.get("coins", 0)),
+                ("Primiera", score.get("primiera_value", 0)),
+            ]
+            stats.extend(
+                [
+                    ("Settebello", "Si" if score.get("has_settebello") else "No"),
+                    ("Scope", score.get("sweeps", 0)),
+                    ("Punti Totali", score.get("total", 0)),
+                ]
+            )
         return {
             "team_id": team_id,
             "team_name": "Squadra {0}".format(team_id + 1),
             "members": ", ".join(members) if members else "Nessun giocatore",
             "color": TEAM_COLORS[team_id],
-            "stats": [
-                ("Carte", score.get("captured_cards", 0)),
-                ("Denari", score.get("coins", 0)),
-                ("Settebello", "Si" if score.get("has_settebello") else "No"),
-                ("Primiera", score.get("primiera_value", 0)),
-                ("Scope", score.get("sweeps", 0)),
-                (total_label, score.get("total", 0)),
-            ],
+            "stats": stats,
             "total": score.get("total", 0),
         }
 
     def _build_player_column(self, team_id: int, score: dict, fallback_name: str):
-        total_label = "Punti Torneo" if self.settings.get("game_mode") == MODE_TOURNAMENT else "Punti Totali"
+        is_tournament = self.settings.get("game_mode") == MODE_TOURNAMENT
         player_name = score.get("player", fallback_name)
+        if is_tournament:
+            stats = self._build_round_point_entries(team_id)
+            stats.append(("Totale", score.get("total", 0)))
+        else:
+            stats = [
+                ("Carte", score.get("captured_cards", 0)),
+                ("Denari", score.get("coins", 0)),
+                ("Primiera", score.get("primiera_value", 0)),
+            ]
+            stats.extend(
+                [
+                    ("Settebello", "Si" if score.get("has_settebello") else "No"),
+                    ("Scope", score.get("sweeps", 0)),
+                    ("Punti Totali", score.get("total", 0)),
+                ]
+            )
         return {
             "team_id": team_id,
             "team_name": "Squadra {0}".format(team_id + 1),
             "members": player_name,
             "color": TEAM_COLORS[team_id],
-            "stats": [
-                ("Carte", score.get("captured_cards", 0)),
-                ("Denari", score.get("coins", 0)),
-                ("Settebello", "Si" if score.get("has_settebello") else "No"),
-                ("Primiera", score.get("primiera_value", 0)),
-                ("Scope", score.get("sweeps", 0)),
-                (total_label, score.get("total", 0)),
-            ],
+            "stats": stats,
             "total": score.get("total", 0),
         }
+
+    def _build_round_point_entries(self, team_id: int):
+        entries = []
+        for index, history_entry in enumerate(self.round_history, start=1):
+            round_label = history_entry.get("round_number", index)
+            round_scores = history_entry.get("round_scores", [])
+            points = 0
+            for score in round_scores:
+                score_team_id = score.get("team_id", score.get("team", 0))
+                if score_team_id == team_id:
+                    points = score.get("total", 0)
+                    break
+            entries.append(("Round {0}".format(round_label), points))
+        return entries
 
     def _draw_column(self, renderer, column: dict, center_x: int, top_y: int, layout: dict) -> None:
         renderer.draw_text(
@@ -268,20 +248,28 @@ class ResultsScene(Scene):
         )
 
         stats_y = top_y + layout["stats_start_offset"]
+        row_count = max(1, len(column["stats"]))
+        available_height = max(220, layout["buttons_top"] - stats_y - 36)
+        dynamic_gap = max(24, min(layout["stat_gap"], int(available_height / row_count)))
+        dynamic_stat_size = layout["stat_size"]
+        if row_count >= 8:
+            dynamic_stat_size = max(17, layout["stat_size"] - 4)
+        elif row_count >= 6:
+            dynamic_stat_size = max(19, layout["stat_size"] - 2)
         total_rect = None
         for label, value in column["stats"]:
-            is_total = label in ("Punti Totali", "Punti Torneo")
+            is_total = label in ("Punti Totali", "Punti Torneo", "Totale Punti", "Totale")
             row_rect = renderer.draw_text(
                 "{0}: {1}".format(label, value),
                 (center_x, stats_y),
-                size=layout["total_stat_size"] if is_total else layout["stat_size"],
+                size=layout["total_stat_size"] if is_total else dynamic_stat_size,
                 color=TEXT_COLOR if is_total else TEXT_DIM_COLOR,
                 bold=is_total,
                 align="midtop",
             )
             if is_total:
                 total_rect = row_rect
-            stats_y += layout["stat_gap"]
+            stats_y += dynamic_gap
 
         return {
             "total_rect": total_rect,
@@ -375,6 +363,7 @@ class ResultsScene(Scene):
             "total_stat_size": total_stat_size,
             "winner_size": winner_size,
             "button_font_size": button_font_size,
+            "buttons_top": buttons_y,
             "audio_button": pygame.Rect(width - 54, height - 54, 36, 36),
             "buttons": [
                 pygame.Rect(buttons_left, buttons_y, button_width, button_height),
