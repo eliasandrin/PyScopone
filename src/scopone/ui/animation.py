@@ -152,7 +152,10 @@ class AnimationManager:
 
         for animation in completed:
             if animation.on_complete is not None:
-                animation.on_complete()
+                callback = animation.on_complete
+                animation.on_complete = None
+                callback()
+            animation.on_start = None
 
     def render(self, renderer) -> None:
         # Hard cleanup guard: completed tweens must never be rendered again.

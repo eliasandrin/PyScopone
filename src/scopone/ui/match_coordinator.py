@@ -18,18 +18,10 @@ if TYPE_CHECKING:
 class MatchCoordinator:
     """Owns turn sequencing, AI pacing, and game-resolution transitions."""
 
-    STATE_WAITING_INPUT = "waiting_input"
-    STATE_ANIMATING_MOVE = "animating_move"
-    STATE_AI_THINKING = "ai_thinking"
-    STATE_RESOLVING = "resolving"
-    STATE_WAITING_ROUND_CONFIRM = "waiting_round_confirm"
-    STATE_GAME_OVER = "game_over"
-
     def __init__(self, app: "GameApp", engine: Optional["GameEngine"], scene: "MatchScene") -> None:
         self.app = app
         self.engine = engine
         self.scene = scene
-        self.state = self.STATE_WAITING_INPUT
         self.pending_ai_player_id = None
         self.ai_thinking_timer = 0.0
         self.result_dispatched = False
@@ -41,22 +33,16 @@ class MatchCoordinator:
         self.ai_thinking_timer = 0.0
         self.result_dispatched = False
         self.pending_resolution_result = None
-        if engine is None:
-            self.state = self.STATE_WAITING_INPUT
-        elif self.scene.deal_sequence_pending:
-            self.state = self.STATE_ANIMATING_MOVE
-        elif not engine.game_active:
-            self.state = self.STATE_GAME_OVER
-        else:
-            self.state = self.STATE_WAITING_INPUT
 
     def can_accept_player_input(self) -> bool:
         if self.engine is None or not self.engine.game_active:
             return False
         if self.scene.menu_open or self.scene.deal_sequence_pending or self.scene.animations.has_active() or self.scene.round_overlay.active:
             return False
+        if self.pending_resolution_result is not None:
+            return False
         current_player = self.engine.get_current_player()
-        return current_player.is_human and self.state == self.STATE_WAITING_INPUT
+        return current_player.is_human
 
     def on_player_move(self, card: "Card") -> None:
         if self.engine is None or not self.can_accept_player_input():
@@ -73,7 +59,6 @@ class MatchCoordinator:
         self.scene._append_log("Tu giochi {0}".format(self.scene._format_card(card)))
         self.pending_ai_player_id = None
         self.ai_thinking_timer = 0.0
-        self.state = self.STATE_ANIMATING_MOVE
         self.scene._queue_move_sequence(current_player, card, source_rect, captured_cards, captured_rects, self.engine.last_move_result)
 
     def update(self, dt: float) -> None:
@@ -81,15 +66,12 @@ class MatchCoordinator:
             return
 
         if self.scene.round_overlay.active:
-            self.state = self.STATE_WAITING_ROUND_CONFIRM
             return
 
         if self.scene.deal_sequence_pending or self.scene.animations.has_active():
-            self.state = self.STATE_ANIMATING_MOVE
             return
 
         if not self.engine.game_active:
-            self.state = self.STATE_GAME_OVER
             self._dispatch_results()
             return
 
@@ -97,23 +79,19 @@ class MatchCoordinator:
         if current_player.is_human:
             self.pending_ai_player_id = None
             self.ai_thinking_timer = 0.0
-            self.state = self.STATE_WAITING_INPUT
             return
 
         if not current_player.hand:
             self.pending_ai_player_id = None
             self.ai_thinking_timer = 0.0
-            self.state = self.STATE_RESOLVING
             return
 
         if self.pending_ai_player_id != current_player.id:
             self.pending_ai_player_id = current_player.id
             self.ai_thinking_timer = AI_THINKING_DELAY_MS / 1000.0
-            self.state = self.STATE_AI_THINKING
             self.scene._append_log("{0} sta pensando...".format(current_player.name))
             return
 
-        self.state = self.STATE_AI_THINKING
         self.ai_thinking_timer -= dt
         if self.ai_thinking_timer <= 0.0:
             self._play_ai_turn()
@@ -123,9 +101,7 @@ class MatchCoordinator:
             return
 
         self.pending_resolution_result = move_result
-        self.state = self.STATE_RESOLVING
         if move_result.get("restocked") and self.scene.last_layout is not None:
-            self.state = self.STATE_ANIMATING_MOVE
             self.scene._schedule_deal_sequence(
                 self.scene.last_layout,
                 include_table=False,
@@ -142,13 +118,11 @@ class MatchCoordinator:
 
         move_result = self.pending_resolution_result or {}
         self.pending_resolution_result = None
-        self.state = self.STATE_RESOLVING
 
         if self.scene.settings.get("game_mode") == MODE_TOURNAMENT and move_result.get("round_ended"):
             self.scene.show_round_end_overlay(move_result)
             self.pending_ai_player_id = None
             self.ai_thinking_timer = 0.0
-            self.state = self.STATE_WAITING_ROUND_CONFIRM
             return
 
         if self.engine.game_active:
@@ -157,12 +131,8 @@ class MatchCoordinator:
         self.ai_thinking_timer = 0.0
 
         if not self.engine.game_active:
-            self.state = self.STATE_GAME_OVER
             self._dispatch_results()
             return
-
-        current_player = self.engine.get_current_player()
-        self.state = self.STATE_WAITING_INPUT if current_player.is_human else self.STATE_AI_THINKING
 
     def on_round_confirmed(self, move_result) -> None:
         self.pending_ai_player_id = None
@@ -171,11 +141,8 @@ class MatchCoordinator:
         self.result_dispatched = False
 
         if move_result.get("game_ended"):
-            self.state = self.STATE_GAME_OVER
             self._dispatch_results()
             return
-
-        self.state = self.STATE_ANIMATING_MOVE if self.scene.deal_sequence_pending else self.STATE_WAITING_INPUT
 
     def _play_ai_turn(self) -> None:
         if self.engine is None:
@@ -200,7 +167,6 @@ class MatchCoordinator:
         self.scene._append_log("AI: {0}".format(strategy.get_last_decision_reason()))
         self.pending_ai_player_id = None
         self.ai_thinking_timer = 0.0
-        self.state = self.STATE_ANIMATING_MOVE
         self.scene._queue_move_sequence(
             current_player,
             selected_card,

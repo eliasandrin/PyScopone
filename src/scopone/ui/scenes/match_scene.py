@@ -1,3 +1,5 @@
+from functools import partial
+
 import pygame
 
 from scopone.config.game import DEFAULT_PLAYER_NAMES, MODE_QUICK, MODE_TOURNAMENT, SIMBOLI, TARGET_SCORE_TOURNAMENT
@@ -295,8 +297,16 @@ class MatchScene(Scene):
                     face_up=True,
                     start_angle=start_angle,
                     target_angle=0,
-                    on_start=lambda: self.app.audio.play("play"),
-                    on_complete=lambda: self._queue_capture_sequence(player.id, card, captured_cards, captured_rects, target_rect, move_result),
+                    on_start=self._on_play_sound,
+                    on_complete=partial(
+                        self._queue_capture_sequence,
+                        player.id,
+                        card,
+                        captured_cards,
+                        captured_rects,
+                        target_rect,
+                        move_result,
+                    ),
                     layer=3,
                 )
             )
@@ -317,8 +327,8 @@ class MatchScene(Scene):
                 face_up=True,
                 start_angle=start_angle,
                 target_angle=0,
-                on_start=lambda: self.app.audio.play("play"),
-                on_complete=lambda: self._finish_table_play(card, move_result),
+                on_start=self._on_play_sound,
+                on_complete=partial(self._finish_table_play, card, move_result),
                 layer=3,
             )
         )
@@ -472,7 +482,7 @@ class MatchScene(Scene):
                         duration=DEAL_CARD_DURATION,
                         face_up=True,
                         delay=sequence_index * DEAL_CARD_DELAY,
-                        on_start=lambda: self.app.audio.play("deal"),
+                        on_start=self._on_deal_sound,
                         on_complete=self._make_reveal_callback("table", None, card, reveal_registry, on_complete),
                         layer=2,
                     )
@@ -511,7 +521,7 @@ class MatchScene(Scene):
                         start_angle=0,
                         target_angle=self._get_player_angle(player.id),
                         delay=sequence_index * DEAL_CARD_DELAY,
-                        on_start=lambda: self.app.audio.play("deal"),
+                        on_start=self._on_deal_sound,
                         on_complete=self._make_reveal_callback("hand", player_id, card, reveal_registry, on_complete),
                         layer=2,
                     )
@@ -540,6 +550,12 @@ class MatchScene(Scene):
                 final_callback()
 
         return callback
+
+    def _on_play_sound(self) -> None:
+        self.app.audio.play("play")
+
+    def _on_deal_sound(self) -> None:
+        self.app.audio.play("deal")
 
     def _draw_table(self, renderer, rect: pygame.Rect) -> None:
         table_surface = pygame.Surface(rect.size, pygame.SRCALPHA)
