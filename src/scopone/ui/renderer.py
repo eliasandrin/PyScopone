@@ -123,12 +123,28 @@ class Renderer:
         if normalized_angle in (90, 270):
             source_size = (rect.height, rect.width)
 
+        shadow_alpha = 76 if face_up else 64
+        self.draw_card_shadow(rect, alpha=shadow_alpha, offset=(0, 6))
+
         surface = self.assets.get_card_surface(card, source_size, face_up=face_up)
         if normalized_angle:
             surface = pygame.transform.rotate(surface, angle)
         self.surface.blit(surface, rect)
+
         if face_up:
-            pygame.draw.rect(self.surface, CARD_BORDER_COLOR, rect, width=1, border_radius=12)
+            pygame.draw.rect(self.surface, CARD_BORDER_COLOR, rect, width=2, border_radius=12)
+            pygame.draw.rect(self.surface, (246, 250, 255), rect.inflate(-6, -6), width=1, border_radius=10)
+
+            # Add a soft top sheen to improve card readability and depth on high-resolution displays.
+            highlight = pygame.Surface(rect.size, pygame.SRCALPHA)
+            pygame.draw.ellipse(
+                highlight,
+                (255, 255, 255, 34),
+                pygame.Rect(int(rect.width * 0.1), -int(rect.height * 0.22), int(rect.width * 0.9), int(rect.height * 0.6)),
+            )
+            self.surface.blit(highlight, rect.topleft)
+        else:
+            pygame.draw.rect(self.surface, CARD_BORDER_COLOR, rect, width=2, border_radius=12)
         return rect
 
     def draw_card_shadow(self, rect, alpha: int = 90, offset=(0, 6)) -> None:

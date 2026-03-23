@@ -280,8 +280,14 @@ class MatchScene(Scene):
             return
 
         start_angle = self._get_player_angle(player.id)
+        table_card_size = self.last_layout["table_card_size"]
         if captured_cards:
-            target_rect = self._get_table_stack_rect(self.last_layout["table_rect"], 0, len(captured_cards) + 1).move(0, -CAPTURE_ACTIVE_RAISE)
+            target_rect = self._get_table_stack_rect(
+                self.last_layout["table_rect"],
+                0,
+                len(captured_cards) + 1,
+                table_card_size,
+            ).move(0, -CAPTURE_ACTIVE_RAISE)
             self.animations.add(
                 CardTween(
                     card=card,
@@ -299,8 +305,12 @@ class MatchScene(Scene):
             return
 
         self.hidden_table_cards.add(card)
-        table_rects = self._get_table_card_rects(self.last_layout["table_rect"], move_result["table_cards_after"])
-        target_rect = table_rects.get(card, self._get_table_stack_rect(self.last_layout["table_rect"], 0, 1))
+        table_rects = self._get_table_card_rects(
+            self.last_layout["table_rect"],
+            move_result["table_cards_after"],
+            table_card_size,
+        )
+        target_rect = table_rects.get(card, self._get_table_stack_rect(self.last_layout["table_rect"], 0, 1, table_card_size))
         self.animations.add(
             CardTween(
                 card=card,
@@ -331,7 +341,12 @@ class MatchScene(Scene):
             return
 
         remaining = {"count": len(cards_to_collect)}
-        capture_target = self.capture_pile_targets.get(player_id, self._get_default_capture_target(self.last_layout["table_rect"]))
+        table_card_size = self.last_layout["table_card_size"]
+        small_card_size = self.last_layout["small_card_size"]
+        capture_target = self.capture_pile_targets.get(
+            player_id,
+            self._get_default_capture_target(self.last_layout["table_rect"], small_card_size),
+        )
 
         def handle_complete():
             remaining["count"] -= 1
@@ -342,7 +357,10 @@ class MatchScene(Scene):
             if index == 0:
                 start_rect = played_rect
             else:
-                start_rect = captured_rects.get(current_card, self._get_table_stack_rect(self.last_layout["table_rect"], index, len(cards_to_collect)))
+                start_rect = captured_rects.get(
+                    current_card,
+                    self._get_table_stack_rect(self.last_layout["table_rect"], index, len(cards_to_collect), table_card_size),
+                )
             target_rect = capture_target.move(index * 2, index * 2)
             self.animations.add(
                 CardTween(
@@ -453,7 +471,7 @@ class MatchScene(Scene):
         sequence_index = 0
 
         if include_table:
-            table_rects = self._get_table_card_rects(layout["table_rect"], self.engine.table)
+            table_rects = self._get_table_card_rects(layout["table_rect"], self.engine.table, layout["table_card_size"])
             for card in self.engine.table:
                 target_rect = table_rects.get(card)
                 if target_rect is None:
@@ -529,14 +547,30 @@ class MatchScene(Scene):
         return callback
 
     def _calculate_layout(self, width: int, height: int):
+        ui_scale = self._clamp_float(min(width / 1920.0, height / 1080.0), 0.85, 1.4)
+        card_presence_scale = self._clamp_float(ui_scale * 1.14, 0.95, 1.6)
+        hand_card_size = self._scale_card_size(CARD_SIZE_HAND, card_presence_scale, minimum=(100, 150))
+        table_card_size = self._scale_card_size(CARD_SIZE_TABLE, card_presence_scale, minimum=(116, 174))
+        small_card_size = self._scale_card_size(CARD_SIZE_SMALL, card_presence_scale, minimum=(78, 117))
+
         margin = self._clamp(int(min(width, height) * 0.02), 14, 28)
         label_lane = self._clamp(int(min(width, height) * 0.06), 48, 64)
-        top_cards_height = self._clamp(int(height * 0.1), 84, 108)
-        bottom_cards_height = self._clamp(int(height * 0.18), 150, 208)
-        side_cards_width = self._clamp(int(width * 0.145), 138, 182)
+        top_cards_height = self._clamp(max(int(height * 0.1), small_card_size[1] + 20), 96, 144)
+        bottom_cards_height = self._clamp(max(int(height * 0.18), hand_card_size[1] + 26), 168, 246)
+        side_cards_width = self._clamp(max(int(width * 0.145), small_card_size[1] + 22), 150, 238)
 
-        score_panel = pygame.Rect(margin, margin, 322, 132)
-        menu_button = pygame.Rect(width - margin - 92, margin, 92, 38)
+        score_panel = pygame.Rect(
+            margin,
+            margin,
+            self._clamp(int(322 * ui_scale), 312, 428),
+            self._clamp(int(132 * ui_scale), 126, 176),
+        )
+        menu_button = pygame.Rect(
+            width - margin - self._clamp(int(92 * ui_scale), 90, 124),
+            margin,
+            self._clamp(int(92 * ui_scale), 90, 124),
+            self._clamp(int(38 * ui_scale), 36, 50),
+        )
         audio_button = pygame.Rect(menu_button.left - 44, margin + 1, 36, 36)
         top_cards_top = score_panel.bottom + 18
 
@@ -574,16 +608,26 @@ class MatchScene(Scene):
             rect.move_ip(0, BLOCK_Y_OFFSET)
 
         deck_rect = pygame.Rect(
-            table_rect.right - CARD_SIZE_SMALL[0] - 22,
-            table_rect.centery - (CARD_SIZE_SMALL[1] // 2),
-            CARD_SIZE_SMALL[0],
-            CARD_SIZE_SMALL[1],
+            table_rect.right - small_card_size[0] - 22,
+            table_rect.centery - (small_card_size[1] // 2),
+            small_card_size[0],
+            small_card_size[1],
         )
         capture_targets = {
-            0: pygame.Rect(bottom_player_rect.left + 18, bottom_label_rect.top - 16, CARD_SIZE_SMALL[0], CARD_SIZE_SMALL[1]),
-            1: pygame.Rect(left_player_rect.centerx - (CARD_SIZE_SMALL[0] // 2), table_rect.bottom - CARD_SIZE_SMALL[1] - 18, CARD_SIZE_SMALL[0], CARD_SIZE_SMALL[1]),
-            2: pygame.Rect(top_player_rect.left + 18, top_player_rect.top + 6, CARD_SIZE_SMALL[0], CARD_SIZE_SMALL[1]),
-            3: pygame.Rect(right_player_rect.centerx - (CARD_SIZE_SMALL[0] // 2), table_rect.top + 18, CARD_SIZE_SMALL[0], CARD_SIZE_SMALL[1]),
+            0: pygame.Rect(bottom_player_rect.left + 18, bottom_label_rect.top - 16, small_card_size[0], small_card_size[1]),
+            1: pygame.Rect(
+                left_player_rect.centerx - (small_card_size[0] // 2),
+                table_rect.bottom - small_card_size[1] - 18,
+                small_card_size[0],
+                small_card_size[1],
+            ),
+            2: pygame.Rect(top_player_rect.left + 18, top_player_rect.top + 6, small_card_size[0], small_card_size[1]),
+            3: pygame.Rect(
+                right_player_rect.centerx - (small_card_size[0] // 2),
+                table_rect.top + 18,
+                small_card_size[0],
+                small_card_size[1],
+            ),
         }
         overlay_rect = pygame.Rect(width // 2 - 340, height // 2 - 180, 680, 360)
 
@@ -603,6 +647,9 @@ class MatchScene(Scene):
             "menu_button": menu_button,
             "audio_button": audio_button,
             "overlay_rect": overlay_rect,
+            "hand_card_size": hand_card_size,
+            "table_card_size": table_card_size,
+            "small_card_size": small_card_size,
         }
 
     def _draw_table(self, renderer, rect: pygame.Rect) -> None:
@@ -622,7 +669,8 @@ class MatchScene(Scene):
             renderer.draw_card((1, "Denari"), deck_rect, face_up=False)
 
     def _draw_table_cards(self, renderer, table_rect: pygame.Rect) -> None:
-        rect_map = self._get_table_card_rects(table_rect, self.engine.table)
+        table_card_size = self.last_layout["table_card_size"] if self.last_layout is not None else CARD_SIZE_TABLE
+        rect_map = self._get_table_card_rects(table_rect, self.engine.table, table_card_size)
         self.card_position_map["table"] = rect_map
 
         visible_cards = [card for card in self.engine.table if card not in self.hidden_table_cards]
@@ -706,31 +754,39 @@ class MatchScene(Scene):
         renderer.surface.blit(rotated, rotated_rect)
 
     def _draw_live_score_panel(self, renderer, rect: pygame.Rect) -> None:
+        panel_scale = self._clamp_float(rect.width / 322.0, 0.95, 1.35)
+        title_size = self._clamp(int(20 * panel_scale), 18, 24)
+        header_size = self._clamp(int(14 * panel_scale), 13, 18)
+        row_label_size = self._clamp(int(17 * panel_scale), 15, 20)
+        row_value_size = self._clamp(int(16 * panel_scale), 14, 19)
+        total_size = self._clamp(int(18 * panel_scale), 16, 22)
+        row_gap = self._clamp(int(30 * panel_scale), 28, 36)
+
         self._draw_glass_panel(renderer, rect, PANEL_COLOR, HIGHLIGHT_COLOR, alpha=198)
-        renderer.draw_text("Live", (rect.left + 14, rect.top + 10), size=18, bold=True)
+        renderer.draw_text("Live", (rect.left + 14, rect.top + 10), size=title_size, bold=True)
 
         headers = [
-            ("Car", rect.left + 92),
-            ("Den", rect.left + 126),
-            ("Pri", rect.left + 160),
-            ("7B", rect.left + 194),
-            ("Scp", rect.left + 228),
-            ("TOT", rect.left + 286),
+            ("Car", rect.left + int(92 * panel_scale)),
+            ("Den", rect.left + int(126 * panel_scale)),
+            ("Pri", rect.left + int(160 * panel_scale)),
+            ("7B", rect.left + int(194 * panel_scale)),
+            ("Scp", rect.left + int(228 * panel_scale)),
+            ("TOT", rect.left + int(286 * panel_scale)),
         ]
         for label, x in headers:
-            renderer.draw_text(label, (x, rect.top + 16), size=13, color=TEXT_DIM_COLOR, align="midtop")
+            renderer.draw_text(label, (x, rect.top + 16), size=header_size, color=TEXT_DIM_COLOR, align="midtop")
 
         rows = self._get_live_team_rows()
-        y = rect.top + 50
+        y = rect.top + int(52 * panel_scale)
         for row in rows:
-            renderer.draw_text(row["label"], (rect.left + 16, y), size=15, color=row["color"], bold=True)
-            renderer.draw_text(str(row["cards"]), (rect.left + 92, y), size=14, color=TEXT_COLOR, align="midtop")
-            renderer.draw_text(str(row["coins"]), (rect.left + 126, y), size=14, color=TEXT_COLOR, align="midtop")
-            renderer.draw_text(str(row["primiera"]), (rect.left + 160, y), size=14, color=TEXT_COLOR, align="midtop")
-            renderer.draw_text(str(row["settebello"]), (rect.left + 194, y), size=14, color=TEXT_COLOR, align="midtop")
-            renderer.draw_text(str(row["sweeps"]), (rect.left + 228, y), size=14, color=TEXT_COLOR, align="midtop")
-            renderer.draw_text(str(row["total"]), (rect.left + 286, y), size=16, color=TEXT_COLOR, bold=True, align="midtop")
-            y += 28
+            renderer.draw_text(row["label"], (rect.left + 16, y), size=row_label_size, color=row["color"], bold=True)
+            renderer.draw_text(str(row["cards"]), (rect.left + int(92 * panel_scale), y), size=row_value_size, color=TEXT_COLOR, align="midtop")
+            renderer.draw_text(str(row["coins"]), (rect.left + int(126 * panel_scale), y), size=row_value_size, color=TEXT_COLOR, align="midtop")
+            renderer.draw_text(str(row["primiera"]), (rect.left + int(160 * panel_scale), y), size=row_value_size, color=TEXT_COLOR, align="midtop")
+            renderer.draw_text(str(row["settebello"]), (rect.left + int(194 * panel_scale), y), size=row_value_size, color=TEXT_COLOR, align="midtop")
+            renderer.draw_text(str(row["sweeps"]), (rect.left + int(228 * panel_scale), y), size=row_value_size, color=TEXT_COLOR, align="midtop")
+            renderer.draw_text(str(row["total"]), (rect.left + int(286 * panel_scale), y), size=total_size, color=TEXT_COLOR, bold=True, align="midtop")
+            y += row_gap
 
     def _get_live_team_rows(self):
         rows = []
@@ -922,15 +978,31 @@ class MatchScene(Scene):
     def _clamp(self, value: int, minimum: int, maximum: int) -> int:
         return max(minimum, min(maximum, value))
 
+    def _clamp_float(self, value: float, minimum: float, maximum: float) -> float:
+        return max(minimum, min(maximum, value))
+
+    def _scale_card_size(self, base_size, scale: float, minimum) -> tuple:
+        return (
+            self._clamp(int(base_size[0] * scale), minimum[0], int(base_size[0] * 1.6)),
+            self._clamp(int(base_size[1] * scale), minimum[1], int(base_size[1] * 1.6)),
+        )
+
     def _build_player_label_surface(self, renderer, player_name: str, team_label: str, team_color, current: bool) -> pygame.Surface:
-        name_font = renderer.assets.get_font(19, bold=True)
-        team_font = renderer.assets.get_font(14, bold=False)
+        label_scale = 1.0
+        if self.last_layout is not None:
+            label_scale = self._clamp_float(self.last_layout["hand_card_size"][0] / float(CARD_SIZE_HAND[0]), 0.95, 1.3)
+
+        name_size = self._clamp(int(22 * label_scale), 20, 28)
+        team_size = self._clamp(int(16 * label_scale), 15, 21)
+
+        name_font = renderer.assets.get_font(name_size, bold=True)
+        team_font = renderer.assets.get_font(team_size, bold=False)
         name_surface = name_font.render(player_name, True, team_color)
         team_surface = team_font.render(team_label, True, team_color)
 
-        line_gap = 4
-        padding_x = 18
-        padding_y = 12
+        line_gap = self._clamp(int(5 * label_scale), 4, 8)
+        padding_x = self._clamp(int(20 * label_scale), 18, 28)
+        padding_y = self._clamp(int(13 * label_scale), 12, 20)
 
         text_block_rect = pygame.Rect(
             0,
@@ -959,6 +1031,8 @@ class MatchScene(Scene):
 
     def _get_all_hand_rect_maps(self, layout):
         rect_maps = {}
+        hand_card_size = layout["hand_card_size"]
+        small_card_size = layout["small_card_size"]
         for player in self.engine.players:
             side = self._get_player_side(player.id)
             if side == "bottom":
@@ -966,9 +1040,9 @@ class MatchScene(Scene):
                 rect_maps[player.id] = self._get_horizontal_hand_rects(
                     layout["bottom_player_rect"],
                     player.hand,
-                    CARD_SIZE_HAND,
-                    34,
-                    82,
+                    hand_card_size,
+                    40,
+                    96,
                     bottom_padding=8,
                     lift=10 if current_turn else 0,
                 )
@@ -976,15 +1050,15 @@ class MatchScene(Scene):
                 rect_maps[player.id] = self._get_horizontal_hand_rects(
                     layout["top_player_rect"],
                     player.hand,
-                    CARD_SIZE_SMALL,
-                    18,
-                    44,
+                    small_card_size,
+                    22,
+                    54,
                     bottom_padding=2,
                     lift=0,
                 )
             else:
                 player_rect = layout["left_player_rect"] if side == "left" else layout["right_player_rect"]
-                rect_maps[player.id] = self._get_vertical_hand_rects(player_rect, player.hand, CARD_SIZE_SMALL)
+                rect_maps[player.id] = self._get_vertical_hand_rects(player_rect, player.hand, small_card_size)
         return rect_maps
 
     def _get_horizontal_hand_rects(self, rect: pygame.Rect, cards, card_size, spacing_min: int, spacing_max: int, bottom_padding: int, lift: int):
@@ -1008,7 +1082,7 @@ class MatchScene(Scene):
 
         rotated_width = card_size[1]
         rotated_height = card_size[0]
-        spacing = max(44, min(82, (rect.height - rotated_height) // max(len(cards), 1)))
+        spacing = max(50, min(92, (rect.height - rotated_height) // max(len(cards), 1)))
         total_height = rotated_height + (spacing * (len(cards) - 1))
         start_y = rect.centery - (total_height // 2)
         x = rect.centerx - (rotated_width // 2)
@@ -1016,13 +1090,13 @@ class MatchScene(Scene):
             rect_map[card] = pygame.Rect(x, start_y + (index * spacing), rotated_width, rotated_height)
         return rect_map
 
-    def _get_table_card_rects(self, table_rect: pygame.Rect, cards):
+    def _get_table_card_rects(self, table_rect: pygame.Rect, cards, card_size):
         rect_map = {}
         if not cards:
             return rect_map
 
-        card_width, card_height = CARD_SIZE_TABLE
-        spacing = max(18, min(92, (table_rect.width - card_width) // max(len(cards), 1)))
+        card_width, card_height = card_size
+        spacing = max(24, min(108, (table_rect.width - card_width) // max(len(cards), 1)))
         total_width = card_width + (spacing * (len(cards) - 1))
         start_x = table_rect.centerx - (total_width // 2)
         y = table_rect.centery - (card_height // 2)
@@ -1030,14 +1104,15 @@ class MatchScene(Scene):
             rect_map[card] = pygame.Rect(start_x + (index * spacing), y, card_width, card_height)
         return rect_map
 
-    def _get_table_stack_rect(self, table_rect: pygame.Rect, index: int, total_cards: int) -> pygame.Rect:
+    def _get_table_stack_rect(self, table_rect: pygame.Rect, index: int, total_cards: int, card_size) -> pygame.Rect:
+        card_width, card_height = card_size
         spread = min(14, max(4, total_cards * 2))
-        start_x = table_rect.centerx - (CARD_SIZE_TABLE[0] // 2) - ((total_cards - 1) * spread // 2)
-        start_y = table_rect.centery - (CARD_SIZE_TABLE[1] // 2) - ((total_cards - 1) * spread // 3)
-        return pygame.Rect(start_x + (index * spread), start_y + (index * max(3, spread // 2)), CARD_SIZE_TABLE[0], CARD_SIZE_TABLE[1])
+        start_x = table_rect.centerx - (card_width // 2) - ((total_cards - 1) * spread // 2)
+        start_y = table_rect.centery - (card_height // 2) - ((total_cards - 1) * spread // 3)
+        return pygame.Rect(start_x + (index * spread), start_y + (index * max(3, spread // 2)), card_width, card_height)
 
-    def _get_default_capture_target(self, table_rect: pygame.Rect) -> pygame.Rect:
-        return pygame.Rect(table_rect.right - CARD_SIZE_SMALL[0], table_rect.top, CARD_SIZE_SMALL[0], CARD_SIZE_SMALL[1])
+    def _get_default_capture_target(self, table_rect: pygame.Rect, small_card_size) -> pygame.Rect:
+        return pygame.Rect(table_rect.right - small_card_size[0], table_rect.top, small_card_size[0], small_card_size[1])
 
     def _get_hand_card_rect(self, player_id: int, card):
         return self.card_position_map.get("hands", {}).get(player_id, {}).get(card)

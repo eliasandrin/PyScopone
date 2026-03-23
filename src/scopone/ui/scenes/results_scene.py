@@ -266,13 +266,13 @@ class ResultsScene(Scene):
 
     def _calculate_layout(self, width: int, height: int):
         title_size = self._clamp(int(width * 0.05), 54, 76)
-        subtitle_size = self._clamp(int(width * 0.0135), 16, 21)
+        subtitle_size = self._clamp(int(width * 0.0135), 18, 22)
         team_name_size = self._clamp(int(width * 0.025), 30, 40)
-        members_size = self._clamp(int(width * 0.0135), 16, 20)
-        stat_size = self._clamp(int(width * 0.018), 22, 30)
-        total_stat_size = self._clamp(int(width * 0.021), 26, 34)
+        members_size = self._clamp(int(width * 0.0135), 17, 21)
+        stat_size = self._clamp(int(width * 0.018), 23, 31)
+        total_stat_size = self._clamp(int(width * 0.021), 27, 35)
         winner_size = self._clamp(int(width * 0.03), 34, 46)
-        button_font_size = self._clamp(int(width * 0.0155), 18, 24)
+        button_font_size = self._clamp(int(width * 0.0155), 19, 25)
 
         button_width = self._clamp(int(width * 0.18), 180, 260)
         button_height = self._clamp(int(height * 0.075), 52, 68)

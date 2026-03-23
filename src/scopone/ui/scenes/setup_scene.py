@@ -134,8 +134,8 @@ class SetupScene(Scene):
         # coordinates, so the same composition stays centered in windowed mode
         # and after a fullscreen switch.
         title_size = self._clamp(int(width * 0.075), 84, 104)
-        section_size = self._clamp(int(width * 0.018), 18, 24)
-        hint_size = self._clamp(int(width * 0.012), 16, 20)
+        section_size = self._clamp(int(width * 0.018), 20, 26)
+        hint_size = self._clamp(int(width * 0.012), 17, 21)
 
         title_center = (width // 2, int(height * 0.18))
 
@@ -164,8 +164,8 @@ class SetupScene(Scene):
             "config_heading": config_heading,
             "section_size": section_size,
             "hint_size": hint_size,
-            "config_font_size": self._clamp(int(width * 0.014), 18, 22),
-            "action_font_size": self._clamp(int(width * 0.018), 22, 28),
+            "config_font_size": self._clamp(int(width * 0.014), 19, 24),
+            "action_font_size": self._clamp(int(width * 0.018), 23, 30),
             "difficulty_button": pygame.Rect(
                 pair_left,
                 top_row_y,
