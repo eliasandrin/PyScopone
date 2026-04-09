@@ -40,6 +40,8 @@ class AssetManager:
         8: 9,
         9: 10,
     }
+    ATLAS_CARD_BACK_CELL = (5, 3)  # 1-based: row 5, col 3
+    ATLAS_CAPTURE_HIGHLIGHT_CELL = (5, 10)  # 1-based: row 5, col 10
 
     def __init__(self) -> None:
         self.assets_root = Path(__file__).resolve().parents[3] / "assets"
@@ -152,9 +154,9 @@ class AssetManager:
         if w <= 0 or h <= 0:
             return pygame.Rect(x, y, 0, 0)
 
-        # Trim a small border per cell to avoid atlas separators/margins when present.
-        pad_x = max(0, min(3, w // 20))
-        pad_y = max(0, min(3, h // 20))
+        # Keep most of the original card frame; trim only 1px separators.
+        pad_x = 1 if w >= 8 else 0
+        pad_y = 1 if h >= 8 else 0
         rect = pygame.Rect(x + pad_x, y + pad_y, w - (pad_x * 2), h - (pad_y * 2))
 
         if rect.width <= 0 or rect.height <= 0:
@@ -204,6 +206,7 @@ class AssetManager:
             return self.surface_cache[cache_key]
 
         surface = self._load_card_image(card, size) if face_up else self._build_card_back(size)
+        surface = self._apply_card_shape(surface)
         self.surface_cache[cache_key] = surface
         return surface
 
@@ -214,6 +217,18 @@ class AssetManager:
             return cached
 
         surface = self._build_card_back(size)
+        surface = self._apply_card_shape(surface)
+        self.surface_cache[cache_key] = surface
+        return surface
+
+    def get_capture_highlight_surface(self, size: Tuple[int, int]) -> pygame.Surface:
+        cache_key = ("capture-highlight", size)
+        cached = self.surface_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        surface = self._build_capture_highlight(size)
+        surface = self._apply_card_shape(surface)
         self.surface_cache[cache_key] = surface
         return surface
 
@@ -374,6 +389,10 @@ class AssetManager:
         return surface
 
     def _build_card_back(self, size: Tuple[int, int]) -> pygame.Surface:
+        atlas_back = self._get_atlas_cell_surface(*self.ATLAS_CARD_BACK_CELL)
+        if atlas_back is not None:
+            return self._render_card_to_target(atlas_back, size, preserve_aspect_ratio=True)
+
         custom_back_path = self.assets_root / "retro carte.png"
         if custom_back_path.exists():
             loaded = pygame.image.load(str(custom_back_path)).convert_alpha()
@@ -387,3 +406,92 @@ class AssetManager:
         label = self.get_font(max(24, size[0] // 4), bold=True).render("SC", True, TEXT_COLOR)
         surface.blit(label, label.get_rect(center=surface.get_rect().center))
         return surface
+
+    def _build_capture_highlight(self, size: Tuple[int, int]) -> pygame.Surface:
+        atlas_highlight = self._get_atlas_cell_surface(*self.ATLAS_CAPTURE_HIGHLIGHT_CELL)
+        if atlas_highlight is not None:
+            sanitized = self._sanitize_highlight_surface(atlas_highlight)
+            return self._render_card_to_target(sanitized, size, preserve_aspect_ratio=True)
+
+        # Fallback if atlas cell is unavailable: subtle rounded glow overlay.
+        surface = pygame.Surface(size, pygame.SRCALPHA)
+        inner = surface.get_rect().inflate(-12, -16)
+        pygame.draw.rect(surface, (180, 214, 250, 72), inner, border_radius=12)
+        pygame.draw.rect(surface, (236, 247, 255, 108), inner, width=2, border_radius=12)
+        return surface
+
+    def _apply_card_shape(self, source: pygame.Surface) -> pygame.Surface:
+        width, height = source.get_size()
+        if width <= 0 or height <= 0:
+            return source
+
+        # Keep a clear and consistent rounded profile across every card-like
+        # surface (front, back and highlight overlays).
+        radius = self.get_card_corner_radius((width, height))
+        shaped = source.copy()
+        mask = pygame.Surface((width, height), pygame.SRCALPHA)
+        pygame.draw.rect(mask, (255, 255, 255, 255), mask.get_rect(), border_radius=radius)
+        shaped.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+        return shaped
+
+    def get_card_corner_radius(self, size: Tuple[int, int]) -> int:
+        width, height = size
+        if width <= 0 or height <= 0:
+            return 0
+        return max(3, min(width, height) // 24)
+
+    def _sanitize_highlight_surface(self, source: pygame.Surface) -> pygame.Surface:
+        # Most overlay cells use a solid corner background; make that color transparent
+        # so the highlight does not appear as an opaque white rectangle on the table.
+        corner = source.get_at((0, 0))
+        if corner.a == 0:
+            return source
+
+        key_color = (corner.r, corner.g, corner.b)
+        keyed = source.copy()
+        keyed.set_colorkey(key_color)
+
+        sanitized = pygame.Surface(keyed.get_size(), pygame.SRCALPHA)
+        sanitized.blit(keyed, (0, 0))
+        return sanitized
+
+    def _get_atlas_cell_surface(self, row_1_based: int, col_1_based: int) -> Optional[pygame.Surface]:
+        if self.atlas_surface is None:
+            return None
+
+        cell_rect = self._get_atlas_cell_rect(row_1_based, col_1_based)
+        if cell_rect is None:
+            return None
+
+        try:
+            return self.atlas_surface.subsurface(cell_rect).copy()
+        except ValueError:
+            return None
+
+    def _get_atlas_cell_rect(self, row_1_based: int, col_1_based: int) -> Optional[pygame.Rect]:
+        if row_1_based < 1 or col_1_based < 1:
+            return None
+
+        row_index = row_1_based - 1
+        col_index = col_1_based - 1
+        if row_index >= self.ATLAS_ROWS or col_index >= self.ATLAS_COLUMNS:
+            return None
+
+        if self.atlas_surface is None:
+            return None
+
+        atlas_width, atlas_height = self.atlas_surface.get_size()
+        row_bounds = self._split_axis(atlas_height, self.ATLAS_ROWS)
+        col_bounds = self._split_axis(atlas_width, self.ATLAS_COLUMNS)
+        if row_index >= len(row_bounds) or col_index >= len(col_bounds):
+            return None
+
+        y0, y1 = row_bounds[row_index]
+        x0, x1 = col_bounds[col_index]
+        crop = self._inset_crop_rect(x0, y0, x1 - x0, y1 - y0)
+        if crop.width <= 0 or crop.height <= 0:
+            return None
+
+        if not self.atlas_surface.get_rect().contains(crop):
+            return None
+        return crop

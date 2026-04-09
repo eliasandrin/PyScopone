@@ -42,6 +42,7 @@ CAPTURE_PILE_GAP = 40
 CAPTURE_PILE_STACK_STEP = 3
 CAPTURE_PILE_BUMP_DURATION = 0.10
 CAPTURE_PILE_BUMP_SCALE = 1.05
+CAPTURE_PREVIEW_ALPHA = 156
 
 
 class MatchScene(Scene):
@@ -433,6 +434,42 @@ class MatchScene(Scene):
         table_rects = self.card_position_map.get("table", {})
         return dict((card, table_rects.get(card)) for card in cards if table_rects.get(card) is not None)
 
+    def _draw_capture_preview_overlay(self, renderer, mouse_pos) -> None:
+        if self.engine is None or not self.coordinator.can_accept_player_input():
+            return
+
+        hovered_card = self._get_hovered_human_card(mouse_pos)
+        if hovered_card is None:
+            return
+
+        capture_preview_cards = self._get_hover_capture_preview_cards(hovered_card)
+        if not capture_preview_cards:
+            return
+
+        table_rect_map = self.card_position_map.get("table", {})
+        for table_card in capture_preview_cards:
+            table_rect = table_rect_map.get(table_card)
+            if table_rect is None:
+                continue
+            renderer.draw_card_capture_highlight(table_rect, alpha=CAPTURE_PREVIEW_ALPHA)
+
+    def _get_hovered_human_card(self, mouse_pos):
+        for rect, card in reversed(self.card_hitboxes):
+            if rect.collidepoint(mouse_pos):
+                return card
+        return None
+
+    def _get_hover_capture_preview_cards(self, card):
+        if self.engine is None:
+            return []
+
+        legal_captures = ScoringEngine.filter_min_card_captures(ScoringEngine.find_captures(card, self.engine.table))
+        # Avoid misleading preview when user must choose among multiple legal captures.
+        if len(legal_captures) != 1:
+            return []
+
+        return list(legal_captures[0])
+
     def _format_card(self, card) -> str:
         return "{0}{1}".format(card[0], SIMBOLI[card[1]])
 
@@ -464,6 +501,9 @@ class MatchScene(Scene):
 
         self.board_view.render_table_and_players(renderer, layout, mouse_pos)
         self.animations.render(renderer)
+        # Keep capture preview above every card layer (static + animated)
+        # so highlighted table targets are never visually hidden.
+        self._draw_capture_preview_overlay(renderer, mouse_pos)
 
         if self.log_visible:
             self._draw_log_overlay(renderer)

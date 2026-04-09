@@ -120,6 +120,7 @@ class Renderer:
         rect = pygame.Rect(rect)
         source_size = rect.size
         normalized_angle = angle % 360
+        frame_radius = self.assets.get_card_corner_radius(source_size)
 
         # Ignora l'inversione di bounding box per le carte in volo: il loro rect sorgente
         # è sempre basato sull'asset di partenza, evitando double-rotations fallate a fine corsa.
@@ -150,7 +151,7 @@ class Renderer:
             self.surface.blit(original_card_image, rect)
 
         if face_up and not is_animating:
-            pygame.draw.rect(self.surface, CARD_BORDER_COLOR, frame_rect, width=2, border_radius=0)
+            pygame.draw.rect(self.surface, CARD_BORDER_COLOR, frame_rect, width=2, border_radius=frame_radius)
 
             # Add a soft top sheen to improve card readability and depth on high-resolution displays.
             highlight = pygame.Surface(frame_rect.size, pygame.SRCALPHA)
@@ -166,18 +167,37 @@ class Renderer:
             )
             self.surface.blit(highlight, frame_rect.topleft)
         elif not is_animating:
-            pygame.draw.rect(self.surface, CARD_BORDER_COLOR, frame_rect, width=2, border_radius=0)
+            pygame.draw.rect(self.surface, CARD_BORDER_COLOR, frame_rect, width=2, border_radius=frame_radius)
         return blit_rect
 
     def draw_card_shadow(self, rect, alpha: int = 90, offset=(0, 6)) -> None:
         rect = pygame.Rect(rect)
-        shadow_rect = rect.move(offset).inflate(-10, -12)
+        shadow_rect = rect.move(offset).inflate(-8, -10)
         if shadow_rect.width <= 0 or shadow_rect.height <= 0:
             return
 
         shadow_surface = pygame.Surface((shadow_rect.width, shadow_rect.height), pygame.SRCALPHA)
-        pygame.draw.ellipse(shadow_surface, (4, 9, 18, alpha), shadow_surface.get_rect())
+        layers = (
+            (12, int(alpha * 0.18)),
+            (6, int(alpha * 0.32)),
+            (2, int(alpha * 0.50)),
+        )
+        for inset, layer_alpha in layers:
+            layer_rect = shadow_surface.get_rect().inflate(-inset, -inset)
+            if layer_rect.width <= 0 or layer_rect.height <= 0:
+                continue
+            radius = max(8, min(layer_rect.width, layer_rect.height) // 7)
+            pygame.draw.rect(shadow_surface, (4, 9, 18, layer_alpha), layer_rect, border_radius=radius)
+
         self.surface.blit(shadow_surface, shadow_rect.topleft)
+
+    def draw_card_capture_highlight(self, rect, alpha: int = 112) -> None:
+        rect = pygame.Rect(rect)
+        applied_alpha = max(0, min(255, alpha))
+
+        overlay = self.assets.get_capture_highlight_surface(rect.size).copy()
+        overlay.set_alpha(applied_alpha)
+        self.surface.blit(overlay, rect.topleft)
 
     def draw_audio_toggle(self, rect, muted: bool = False, hovered: bool = False) -> pygame.Rect:
         rect = pygame.Rect(rect)
