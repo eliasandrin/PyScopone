@@ -65,7 +65,6 @@ class ScoreEntry(TypedDict):
     primiera_value: int
     points_breakdown: PointsBreakdown
     bonuses: Bonuses
-    total_score: int
     team: int
     points: ScorePoints
     total: int
@@ -251,8 +250,8 @@ class ScoringEngine:
         if not final_scores:
             return []
 
-        highest_score = final_scores[0]["total_score"]
-        return [score["player"] for score in final_scores if score["total_score"] == highest_score]
+        highest_score = final_scores[0]["total"]
+        return [score["player"] for score in final_scores if score["total"] == highest_score]
 
     @staticmethod
     def _build_score_entry(raw_stats: RawStats) -> ScoreEntry:
@@ -280,7 +279,7 @@ class ScoringEngine:
             "primiera": 0,
             "sweeps": points_breakdown["sweeps"],
         }
-        total_score = sum(points_breakdown.values()) + sum(bonuses.values())
+        total = sum(points_breakdown.values()) + sum(bonuses.values())
 
         return {
             "entity_id": raw_stats["entity_id"],
@@ -294,10 +293,9 @@ class ScoringEngine:
             "primiera_value": raw_stats["primiera_value"],
             "points_breakdown": points_breakdown,
             "bonuses": bonuses,
-            "total_score": total_score,
             "team": raw_stats["team"],
             "points": legacy_points,
-            "total": total_score,
+            "total": total,
         }
 
     @staticmethod
@@ -333,8 +331,7 @@ class ScoringEngine:
         winner = scores[winner_index]
         winner["bonuses"][bonus_key] = points_award
         winner["points"][bonus_key] = points_award
-        winner["total_score"] += points_award
-        winner["total"] = winner["total_score"]
+        winner["total"] += points_award
 
     @staticmethod
     def _sort_scores(scores: List[ScoreEntry]) -> List[ScoreEntry]:
@@ -346,5 +343,5 @@ class ScoringEngine:
         Returns:
             The sorted score list.
         """
-        scores.sort(key=lambda score: score["total_score"], reverse=True)
+        scores.sort(key=lambda score: score["total"], reverse=True)
         return scores

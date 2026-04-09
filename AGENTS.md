@@ -65,7 +65,7 @@ This document serves as the master instruction set for AI coding assistants work
 ## **6. Tech Stack & Architecture Rules**
 
 * **Language:** Python 3.7+
-* **GUI Framework:** CustomTkinter (modern wrapper for Tkinter).
+* **GUI Framework:** Pygame.
 * **Image Processing:** Pillow (PIL) for card rendering.
 * **Project Layout:**
     * `/config/`: Constants, colors, and global settings.
@@ -75,7 +75,7 @@ This document serves as the master instruction set for AI coding assistants work
     * `/ui/`: GUI implementation (`ScoponeApp`).
     * `/utils/`: Utilities like `ImageLoader`.
 
-## **7. Frontend Standards (CustomTkinter)**
+## **7. Frontend Standards (Pygame)**
 
 * **Styling:** Use `config.constants` for colors and fonts. Maintain a dark, premium aesthetic.
 * **UI Responsiveness:** Ensure the GUI remains responsive during AI turns.

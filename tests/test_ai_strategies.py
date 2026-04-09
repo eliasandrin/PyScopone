@@ -50,11 +50,11 @@ class AIStrategyTests(unittest.TestCase):
         self.assertEqual(chosen, (7, "Denari"))
         self.assertIn("cattura", strategy.get_last_decision_reason())
 
-    def test_normal_ai_discards_high_card_when_no_capture(self):
+    def test_normal_ai_discards_lower_value_card_when_no_capture(self):
         strategy = NormalAI()
         chosen = strategy.choose_card([(2, "Coppe"), (8, "Bastoni"), (5, "Denari")], [(7, "Spade")])
-        self.assertEqual(chosen, (8, "Bastoni"))
-        self.assertIn("scarico carta alta", strategy.get_last_decision_reason())
+        self.assertEqual(chosen, (2, "Coppe"))
+        self.assertIn("minor valore strategico", strategy.get_last_decision_reason())
 
     def test_normal_ai_returns_none_on_empty_hand(self):
         strategy = NormalAI()
@@ -78,11 +78,40 @@ class AIStrategyTests(unittest.TestCase):
         self.assertIn(chosen, hand)
         self.assertIn("tavolo vuoto", strategy.get_last_decision_reason())
 
+    def test_normal_ai_choose_move_returns_selected_capture_combo(self):
+        strategy = NormalAI()
+        hand = [(7, "Denari")]
+        table = [(7, "Spade"), (4, "Denari"), (3, "Coppe")]
+
+        chosen_card, chosen_combo = strategy.choose_move(hand, table)
+
+        self.assertEqual(chosen_card, (7, "Denari"))
+        self.assertEqual(chosen_combo, [(4, "Denari"), (3, "Coppe")])
+
+    def test_normal_ai_discard_avoids_settebello_when_possible(self):
+        strategy = NormalAI()
+        hand = [(7, "Denari"), (4, "Coppe")]
+        table = [(1, "Spade")]
+
+        chosen = strategy.choose_card(hand, table)
+
+        self.assertEqual(chosen, (4, "Coppe"))
+
+    def test_expert_ai_choose_move_prefers_scopa_combo(self):
+        strategy = ExpertAI()
+        hand = [(8, "Bastoni")]
+        table = [(4, "Denari"), (4, "Coppe")]
+
+        chosen_card, chosen_combo = strategy.choose_move(hand, table, seen_cards=set(), player_scores={"team_captured": []})
+
+        self.assertEqual(chosen_card, (8, "Bastoni"))
+        self.assertEqual(chosen_combo, [(4, "Denari"), (4, "Coppe")])
+        self.assertIn("scopa", strategy.get_last_decision_reason())
+
     def test_get_ai_strategy_uses_supported_difficulties_and_fallback(self):
         self.assertIsInstance(get_ai_strategy("divertimento"), EasyAI)
         self.assertIsInstance(get_ai_strategy("normale"), NormalAI)
         self.assertIsInstance(get_ai_strategy("esperto"), ExpertAI)
-        self.assertIsInstance(get_ai_strategy("adaptive"), ExpertAI)
         self.assertIsInstance(get_ai_strategy("non-esiste"), NormalAI)
 
 

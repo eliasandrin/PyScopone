@@ -59,6 +59,38 @@ class GameEngineTests(unittest.TestCase):
         self.assertEqual(len(engine.players[1].hand), 10)
         self.assertEqual(engine.deck_remaining, [])
 
+    def test_play_card_respects_selected_capture_combo(self):
+        engine = GameEngine(2, ["Tu", "AI"])
+        engine.reset()
+        engine.table = [(7, "Denari"), (7, "Coppe"), (4, "Spade"), (3, "Bastoni")]
+        engine.players[0].hand = [(7, "Spade")]
+        engine.players[1].hand = [(1, "Coppe")]
+        engine.current_player_idx = 0
+
+        moved = engine.play_card(0, (7, "Spade"), capture_combo=[(4, "Spade"), (3, "Bastoni")])
+
+        self.assertTrue(moved)
+        self.assertIn((7, "Spade"), engine.players[0].captured)
+        self.assertIn((4, "Spade"), engine.players[0].captured)
+        self.assertIn((3, "Bastoni"), engine.players[0].captured)
+        self.assertEqual(sorted(engine.table), sorted([(7, "Denari"), (7, "Coppe")]))
+
+    def test_play_card_default_capture_prefers_equal_value_settebello(self):
+        engine = GameEngine(2, ["Tu", "AI"])
+        engine.reset()
+        engine.table = [(7, "Denari"), (7, "Coppe"), (4, "Spade"), (3, "Bastoni")]
+        engine.players[0].hand = [(7, "Spade")]
+        engine.players[1].hand = [(1, "Coppe")]
+        engine.current_player_idx = 0
+
+        moved = engine.play_card(0, (7, "Spade"))
+
+        self.assertTrue(moved)
+        self.assertIn((7, "Denari"), engine.players[0].captured)
+        self.assertNotIn((7, "Coppe"), engine.players[0].captured)
+        self.assertNotIn((4, "Spade"), engine.players[0].captured)
+        self.assertNotIn((3, "Bastoni"), engine.players[0].captured)
+
     def test_live_tournament_scores_returns_dict(self):
         engine = GameEngine(4, ["Tu", "AI 1", "AI 2", "AI 3"], game_mode=MODE_TOURNAMENT)
         engine.reset()

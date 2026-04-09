@@ -66,6 +66,12 @@ class MatchScene(Scene):
         self.log_drag_offset = (0, 0)
         self.log_header_rect = pygame.Rect(0, 0, 0, 0)
 
+        self.capture_choice_active = False
+        self.capture_choice_card = None
+        self.capture_choice_options = []
+        self.capture_choice_buttons = {}
+        self.capture_choice_panel_rect = pygame.Rect(0, 0, 0, 0)
+
         self.animations = AnimationManager()
         self.render_board = None
         self.card_position_map = {"hands": {}, "table": {}}
@@ -105,6 +111,7 @@ class MatchScene(Scene):
         self.capture_pile_targets = {}
         self.capture_pile_rects = {}
         self.capture_pile_bump = {0: 0.0, 1: 0.0}
+        self._clear_capture_choice()
         self.round_overlay.reset()
         self.render_board = RenderBoard.from_engine(self.engine)
         self.deal_sequence_pending = True
@@ -122,6 +129,10 @@ class MatchScene(Scene):
         if event.type == pygame.KEYDOWN:
             if self.round_overlay.active and event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
                 self._confirm_round_end_overlay()
+                return
+            if self.capture_choice_active and event.key == pygame.K_ESCAPE:
+                self._append_log("Scelta presa annullata.")
+                self._clear_capture_choice()
                 return
             if event.key == pygame.K_ESCAPE:
                 self.menu_open = not self.menu_open
@@ -158,11 +169,17 @@ class MatchScene(Scene):
             return
 
         if self.menu_button_rect.collidepoint(event.pos):
+            if self.capture_choice_active:
+                self._clear_capture_choice()
             self.menu_open = not self.menu_open
             return
 
         if self.round_overlay.active:
             self._confirm_round_end_overlay()
+            return
+
+        if self.capture_choice_active:
+            self._handle_capture_choice_click(event.pos)
             return
 
         if self.menu_open:
@@ -203,6 +220,7 @@ class MatchScene(Scene):
         self.menu_open = False
         self.log_visible = False
         self.log_dragging = False
+        self._clear_capture_choice()
         self.animations.clear()
         self.card_hitboxes = []
         self.card_position_map = {"hands": {}, "table": {}}
@@ -265,6 +283,7 @@ class MatchScene(Scene):
         self.capture_pile_bump = {0: 0.0, 1: 0.0}
         self.animations.clear()
         self.deal_sequence_pending = True
+        self._clear_capture_choice()
         self.coordinator.on_round_confirmed(move_result)
 
     def _queue_move_sequence(self, player, card, source_rect, captured_cards, captured_rects, move_result) -> None:
@@ -406,10 +425,9 @@ class MatchScene(Scene):
         self.coordinator.on_move_animation_finished(move_result)
 
     def _preview_captured_cards(self, card):
-        capture_options = ScoringEngine.find_captures(card, self.engine.table)
-        if capture_options and capture_options[0]:
-            return list(capture_options[0])
-        return []
+        if self.engine is None:
+            return []
+        return self.engine.select_capture_combo(card)
 
     def _get_table_source_rects(self, cards):
         table_rects = self.card_position_map.get("table", {})
@@ -453,8 +471,87 @@ class MatchScene(Scene):
         if self.menu_open:
             self._draw_menu_overlay(renderer, layout["overlay_rect"], mouse_pos)
 
+        if self.capture_choice_active:
+            self._draw_capture_choice_overlay(renderer, mouse_pos)
+
         if self.round_overlay.active:
             self.round_overlay.draw(renderer)
+
+    def request_capture_choice(self, card, capture_options) -> None:
+        legal_options = [list(combo) for combo in capture_options if combo]
+        if len(legal_options) <= 1:
+            return
+        self.capture_choice_active = True
+        self.capture_choice_card = card
+        self.capture_choice_options = legal_options
+        self.capture_choice_buttons = {}
+        self._append_log("Seleziona la presa desiderata.")
+
+    def _clear_capture_choice(self) -> None:
+        self.capture_choice_active = False
+        self.capture_choice_card = None
+        self.capture_choice_options = []
+        self.capture_choice_buttons = {}
+        self.capture_choice_panel_rect = pygame.Rect(0, 0, 0, 0)
+
+    def _handle_capture_choice_click(self, pos) -> None:
+        if not self.capture_choice_buttons:
+            return
+
+        for index, rect in self.capture_choice_buttons.items():
+            if not rect.collidepoint(pos):
+                continue
+            selected_card = self.capture_choice_card
+            selected_combo = list(self.capture_choice_options[index])
+            self._clear_capture_choice()
+            if selected_card is not None:
+                self.coordinator.on_player_move(selected_card, capture_combo=selected_combo)
+            return
+
+        if self.capture_choice_panel_rect.collidepoint(pos):
+            return
+
+        self._append_log("Scelta presa annullata.")
+        self._clear_capture_choice()
+
+    def _draw_capture_choice_overlay(self, renderer, mouse_pos) -> None:
+        if not self.capture_choice_active or not self.capture_choice_options:
+            return
+
+        width, height = renderer.surface.get_size()
+        dimmer = pygame.Surface((width, height), pygame.SRCALPHA)
+        dimmer.fill((0, 0, 0, 152))
+        renderer.surface.blit(dimmer, (0, 0))
+
+        panel_width = self._clamp(int(width * 0.54), 520, 880)
+        panel_height = self._clamp(180 + (len(self.capture_choice_options) * 76), 260, 620)
+        self.capture_choice_panel_rect = pygame.Rect((width - panel_width) // 2, (height - panel_height) // 2, panel_width, panel_height)
+
+        self._draw_glass_panel(renderer, self.capture_choice_panel_rect, PANEL_COLOR, HIGHLIGHT_COLOR, alpha=224)
+        title = "Scegli presa per {0}".format(self._format_card(self.capture_choice_card))
+        renderer.draw_text(title, (self.capture_choice_panel_rect.centerx, self.capture_choice_panel_rect.top + 22), size=30, bold=True, align="midtop")
+        renderer.draw_text(
+            "Clicca una combinazione di carte da catturare",
+            (self.capture_choice_panel_rect.centerx, self.capture_choice_panel_rect.top + 62),
+            size=17,
+            color=TEXT_DIM_COLOR,
+            align="midtop",
+        )
+
+        self.capture_choice_buttons = {}
+        button_width = panel_width - 70
+        button_height = 58
+        start_y = self.capture_choice_panel_rect.top + 96
+        for index, combo in enumerate(self.capture_choice_options):
+            label = " + ".join(self._format_card(card) for card in combo)
+            rect = pygame.Rect(self.capture_choice_panel_rect.left + 35, start_y + (index * 66), button_width, button_height)
+            self.capture_choice_buttons[index] = renderer.draw_button(
+                label,
+                rect,
+                hovered=rect.collidepoint(mouse_pos),
+                tone="accent",
+                font_size=18,
+            )
 
     def _schedule_deal_sequence(self, layout, include_table: bool, only_player_ids, on_complete=None) -> None:
         assert self.render_board is not None

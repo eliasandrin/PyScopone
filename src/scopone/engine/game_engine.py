@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from scopone.config.game import (
     CARD_VALUE_MAX,
     CARD_VALUE_MIN,
+    DENARI_SUIT,
     INITIAL_HAND_CARDS,
     INITIAL_TABLE_CARDS_BY_MODE,
     MAX_PLAYERS,
@@ -13,6 +14,7 @@ from scopone.config.game import (
     MODE_QUICK,
     MODE_TOURNAMENT,
     SEMI,
+    SETTEBELLO_CARD,
     TEAM_IDS,
     TARGET_SCORE_TOURNAMENT,
     TEAM_A_PLAYERS,
@@ -45,7 +47,6 @@ class GameEngine:
         self.round_scores = []  # type: List[Dict]
         self.tournament_scores = {}  # type: Dict[int, Dict]
         self.round_history = []  # type: List[Dict]
-        self.game_history = self.round_history  # Backward compatibility alias
         self.last_move_result = None  # type: Optional[Dict]
         self.round_number = 0
 
@@ -142,7 +143,7 @@ class GameEngine:
                 return player
         return self.players[0]
 
-    def play_card(self, player_idx: int, card: Card) -> bool:
+    def play_card(self, player_idx: int, card: Card, capture_combo: Optional[List[Card]] = None) -> bool:
         player = self.players[player_idx]
         if not player.has_card(card):
             return False
@@ -157,8 +158,8 @@ class GameEngine:
         self.moves_played.append((player.name, card))
 
         possible_captures = ScoringEngine.find_captures(card, self.table)
-        if possible_captures and possible_captures[0]:
-            captured_combo = possible_captures[0]
+        captured_combo = self._choose_capture_combo(card, possible_captures, capture_combo)
+        if captured_combo:
             for captured_card in captured_combo:
                 self.table.remove(captured_card)
 
@@ -198,6 +199,11 @@ class GameEngine:
 
         return True
 
+    def select_capture_combo(self, card: Card, preferred_capture: Optional[List[Card]] = None) -> List[Card]:
+        """Resolve capture choice for the played card using optional preferred combo."""
+        possible_captures = ScoringEngine.find_captures(card, self.table)
+        return self._choose_capture_combo(card, possible_captures, preferred_capture)
+
     def next_player(self) -> None:
         self.current_player_idx = (self.current_player_idx - 1) % self.num_players
 
@@ -205,7 +211,7 @@ class GameEngine:
         """Returns cumulative tournament totals for each team/player before the current hand."""
         if not self.tournament_scores:
             return {}
-        return dict((team_id, score.get("total_score", score.get("total", 0))) for team_id, score in self.tournament_scores.items())
+        return dict((team_id, score.get("total", 0)) for team_id, score in self.tournament_scores.items())
 
     def end_game(self) -> dict:
         round_summary = {
@@ -297,7 +303,6 @@ class GameEngine:
             "primiera_value": 0,
             "points_breakdown": {"settebello": 0, "sweeps": 0},
             "bonuses": {"cards": 0, "coins": 0, "primiera": 0},
-            "total_score": 0,
             "points": {"cards": 0, "coins": 0, "settebello": 0, "primiera": 0, "sweeps": 0},
             "total": 0,
         }
@@ -330,20 +335,19 @@ class GameEngine:
                 cumulative_score["bonuses"][key] = cumulative_score["bonuses"].get(key, 0) + value
                 cumulative_score["points"][key] = cumulative_score["points"].get(key, 0) + value
 
-            cumulative_score["total_score"] += round_score.get("total_score", round_score.get("total", 0))
-            cumulative_score["total"] = cumulative_score["total_score"]
+            cumulative_score["total"] += round_score.get("total", 0)
 
     def _get_sorted_tournament_scores(self) -> List[Dict[str, Any]]:
         return sorted(
             [self._clone_score_entry(score) for score in self.tournament_scores.values()],
-            key=lambda score: score.get("total_score", score.get("total", 0)),
+            key=lambda score: score.get("total", 0),
             reverse=True,
         )
 
     def _has_tournament_winner(self) -> bool:
         if not self.tournament_scores:
             return False
-        return max(score.get("total_score", score.get("total", 0)) for score in self.tournament_scores.values()) >= self.target_score
+        return max(score.get("total", 0) for score in self.tournament_scores.values()) >= self.target_score
 
     def _record_round_history(self, scores: List[Dict[str, Any]], session_complete: bool) -> None:
         winners = ScoringEngine.get_game_winners(scores)
@@ -363,6 +367,42 @@ class GameEngine:
 
     def _previous_turn_index(self, index: int) -> int:
         return (index - 1) % self.num_players
+
+    def _choose_capture_combo(
+        self,
+        played_card: Card,
+        possible_captures: List[List[Card]],
+        preferred_capture: Optional[List[Card]] = None,
+    ) -> List[Card]:
+        legal_captures = [list(combo) for combo in possible_captures if combo]
+        if not legal_captures:
+            return []
+
+        if preferred_capture:
+            preferred_key = self._normalize_capture_combo(preferred_capture)
+            for combo in legal_captures:
+                if self._normalize_capture_combo(combo) == preferred_key:
+                    return combo
+
+        equal_value_captures = [combo for combo in legal_captures if len(combo) == 1 and combo[0][0] == played_card[0]]
+        candidates = equal_value_captures if equal_value_captures else legal_captures
+
+        return max(candidates, key=self._capture_priority_key)
+
+    def _capture_priority_key(self, combo: List[Card]) -> Tuple[int, int, int, int, Tuple[Card, ...]]:
+        denari_count = sum(1 for card in combo if card[1] == DENARI_SUIT)
+        contains_settebello = 1 if SETTEBELLO_CARD in combo else 0
+        primiera_value = ScoringEngine.calculate_primiera(combo)
+        return (
+            contains_settebello,
+            denari_count,
+            len(combo),
+            primiera_value,
+            self._normalize_capture_combo(combo),
+        )
+
+    def _normalize_capture_combo(self, combo: List[Card]) -> Tuple[Card, ...]:
+        return tuple(sorted(combo))
 
     def _clone_score_entry(self, score: Dict[str, Any]) -> Dict[str, Any]:
         cloned = dict(score)

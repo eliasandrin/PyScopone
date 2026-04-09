@@ -7,6 +7,7 @@ from typing import Optional, TYPE_CHECKING
 from scopone.ai.strategies import get_ai_strategy
 from scopone.config.game import MODE_TOURNAMENT
 from scopone.config.ui import AI_THINKING_DELAY_MS
+from scopone.engine.scoring import ScoringEngine
 
 if TYPE_CHECKING:
     from scopone.engine.game_engine import GameEngine
@@ -39,20 +40,28 @@ class MatchCoordinator:
             return False
         if self.scene.menu_open or self.scene.deal_sequence_pending or self.scene.animations.has_active() or self.scene.round_overlay.active:
             return False
+        if self.scene.capture_choice_active:
+            return False
         if self.pending_resolution_result is not None:
             return False
         current_player = self.engine.get_current_player()
         return current_player.is_human
 
-    def on_player_move(self, card: "Card") -> None:
+    def on_player_move(self, card: "Card", capture_combo=None) -> None:
         if self.engine is None or not self.can_accept_player_input():
             return
 
         current_player = self.engine.get_current_player()
+        legal_captures = [combo for combo in ScoringEngine.find_captures(card, self.engine.table) if combo]
+        if capture_combo is None and len(legal_captures) > 1:
+            self.scene.request_capture_choice(card, legal_captures)
+            return
+
+        selected_capture_combo = list(capture_combo) if capture_combo is not None else (list(legal_captures[0]) if legal_captures else [])
         source_rect = self.scene._get_hand_card_rect(current_player.id, card)
-        captured_cards = self.scene._preview_captured_cards(card)
+        captured_cards = selected_capture_combo
         captured_rects = self.scene._get_table_source_rects(captured_cards)
-        if not self.engine.play_card(current_player.id, card):
+        if not self.engine.play_card(current_player.id, card, capture_combo=captured_cards or None):
             self.scene._append_log("Mossa non valida.")
             return
 
@@ -150,7 +159,7 @@ class MatchCoordinator:
 
         current_player = self.engine.get_current_player()
         strategy = get_ai_strategy(self.scene.settings["difficulty"])
-        selected_card = strategy.choose_card(
+        selected_card, selected_capture_combo = strategy.choose_move(
             current_player.hand,
             self.engine.table,
             player_scores=self._build_ai_player_scores(current_player),
@@ -160,9 +169,9 @@ class MatchCoordinator:
             return
 
         source_rect = self.scene._get_hand_card_rect(current_player.id, selected_card)
-        captured_cards = self.scene._preview_captured_cards(selected_card)
+        captured_cards = list(selected_capture_combo) if selected_capture_combo else self.scene._preview_captured_cards(selected_card)
         captured_rects = self.scene._get_table_source_rects(captured_cards)
-        self.engine.play_card(current_player.id, selected_card)
+        self.engine.play_card(current_player.id, selected_card, capture_combo=captured_cards or None)
         self.scene._append_log("{0} gioca {1}".format(current_player.name, self.scene._format_card(selected_card)))
         self.scene._append_log("AI: {0}".format(strategy.get_last_decision_reason()))
         self.pending_ai_player_id = None

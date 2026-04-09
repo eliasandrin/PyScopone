@@ -80,8 +80,7 @@ ai/
 AIStrategy (Abstract)
 ├── EasyAI           → Casuale
 ├── NormalAI         → Cattura + carta bassa
-├── ExpertAI         → Strategia avanzata
-└── AdaptiveAI       → Adattivo
+└── ExpertAI         → Strategia avanzata
 ```
 
 **Pattern**: Strategy Pattern + Factory Pattern
