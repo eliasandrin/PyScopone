@@ -1,4 +1,5 @@
 import sys
+from itertools import permutations
 import unittest
 from pathlib import Path
 
@@ -142,6 +143,49 @@ class ScoringTests(unittest.TestCase):
         self.assertEqual(scores[1]["points"]["primiera"], 0)
         self.assertEqual(scores[1]["points"]["settebello"], 1)
         self.assertTrue(scores[1]["has_settebello"])
+
+    def test_get_game_winners_is_deterministic_across_24_tie_permutations(self):
+        score_entries = [
+            {"player": "Gamma", "total": 9},
+            {"player": "Alpha", "total": 12},
+            {"player": "Beta", "total": 12},
+            {"player": "Delta", "total": 12},
+        ]
+
+        for perm in permutations(score_entries, 4):
+            winners = ScoringEngine.get_game_winners(list(perm))
+            self.assertEqual(winners, ["Alpha", "Beta", "Delta"])
+
+    def test_get_game_winners_uses_highest_total_even_when_input_is_unsorted(self):
+        final_scores = [
+            {"player": "Player 3", "total": 2},
+            {"player": "Player 1", "total": 7},
+            {"player": "Player 2", "total": 7},
+        ]
+
+        self.assertEqual(ScoringEngine.get_game_winners(final_scores), ["Player 1", "Player 2"])
+
+    def test_get_game_winners_two_way_tie_when_cards_denari_settebello_are_equal(self):
+        final_scores = [
+            {
+                "player": "Team 1",
+                "captured_cards": 20,
+                "coins": 5,
+                "has_settebello": True,
+                "primiera_value": 72,
+                "total": 2,
+            },
+            {
+                "player": "Team 2",
+                "captured_cards": 20,
+                "coins": 5,
+                "has_settebello": True,
+                "primiera_value": 72,
+                "total": 2,
+            },
+        ]
+
+        self.assertEqual(ScoringEngine.get_game_winners(final_scores), ["Team 1", "Team 2"])
 
 
 if __name__ == "__main__":

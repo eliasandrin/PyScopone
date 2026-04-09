@@ -124,6 +124,20 @@ class ScoringEngine:
         return legal_captures if legal_captures else [[]]
 
     @staticmethod
+    def filter_min_card_captures(capture_options: List[List[Card]]) -> List[List[Card]]:
+        """Return only capture options with the minimum number of cards.
+
+        When captures are available, Scopone rules in this project enforce
+        selecting among combinations with the smallest cardinality.
+        """
+        legal = [list(combo) for combo in capture_options if combo]
+        if not legal:
+            return []
+
+        min_len = min(len(combo) for combo in legal)
+        return [combo for combo in legal if len(combo) == min_len]
+
+    @staticmethod
     def calculate_player_score(player: SupportsScoringPlayer) -> ScoreEntry:
         """Build the standardized score payload for a single player.
 
@@ -250,8 +264,9 @@ class ScoringEngine:
         if not final_scores:
             return []
 
-        highest_score = final_scores[0]["total"]
-        return [score["player"] for score in final_scores if score["total"] == highest_score]
+        highest_score = max(score.get("total", 0) for score in final_scores)
+        winners = [score["player"] for score in final_scores if score.get("total", 0) == highest_score]
+        return sorted(winners, key=lambda name: str(name).casefold())
 
     @staticmethod
     def _build_score_entry(raw_stats: RawStats) -> ScoreEntry:
@@ -343,5 +358,11 @@ class ScoringEngine:
         Returns:
             The sorted score list.
         """
-        scores.sort(key=lambda score: score["total"], reverse=True)
+        scores.sort(
+            key=lambda score: (
+                -score.get("total", 0),
+                str(score.get("player", "")).casefold(),
+                score.get("team_id", score.get("team", 0)),
+            )
+        )
         return scores

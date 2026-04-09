@@ -9,6 +9,7 @@ if str(SRC) not in sys.path:
 
 from scopone.config.game import FULL_DECK
 from scopone.config.game import MODE_TOURNAMENT
+from scopone.ai.strategies import ExpertAI
 from scopone.engine.game_engine import GameEngine
 
 
@@ -59,21 +60,23 @@ class GameEngineTests(unittest.TestCase):
         self.assertEqual(len(engine.players[1].hand), 10)
         self.assertEqual(engine.deck_remaining, [])
 
-    def test_play_card_respects_selected_capture_combo(self):
+    def test_play_card_ignores_non_minimum_selected_capture_combo(self):
         engine = GameEngine(2, ["Tu", "AI"])
         engine.reset()
-        engine.table = [(7, "Denari"), (7, "Coppe"), (4, "Spade"), (3, "Bastoni")]
-        engine.players[0].hand = [(7, "Spade")]
+        engine.table = [(8, "Spade"), (1, "Denari"), (2, "Coppe"), (5, "Bastoni")]
+        engine.players[0].hand = [(8, "Denari")]
         engine.players[1].hand = [(1, "Coppe")]
         engine.current_player_idx = 0
 
-        moved = engine.play_card(0, (7, "Spade"), capture_combo=[(4, "Spade"), (3, "Bastoni")])
+        moved = engine.play_card(0, (8, "Denari"), capture_combo=[(1, "Denari"), (2, "Coppe"), (5, "Bastoni")])
 
         self.assertTrue(moved)
-        self.assertIn((7, "Spade"), engine.players[0].captured)
-        self.assertIn((4, "Spade"), engine.players[0].captured)
-        self.assertIn((3, "Bastoni"), engine.players[0].captured)
-        self.assertEqual(sorted(engine.table), sorted([(7, "Denari"), (7, "Coppe")]))
+        self.assertIn((8, "Denari"), engine.players[0].captured)
+        self.assertIn((8, "Spade"), engine.players[0].captured)
+        self.assertNotIn((1, "Denari"), engine.players[0].captured)
+        self.assertNotIn((2, "Coppe"), engine.players[0].captured)
+        self.assertNotIn((5, "Bastoni"), engine.players[0].captured)
+        self.assertEqual(sorted(engine.table), sorted([(1, "Denari"), (2, "Coppe"), (5, "Bastoni")]))
 
     def test_play_card_default_capture_prefers_equal_value_settebello(self):
         engine = GameEngine(2, ["Tu", "AI"])
@@ -128,6 +131,52 @@ class GameEngineTests(unittest.TestCase):
         self.assertTrue(engine.game_active)
         self.assertEqual(engine.round_number, initial_round + 1)
         self.assertEqual(engine.dealer_idx, (initial_dealer - 1) % engine.num_players)
+
+    def test_play_card_records_default_decision_log(self):
+        engine = GameEngine(2, ["Tu", "AI"])
+        engine.reset()
+        engine.table = [(7, "Spade")]
+        engine.players[0].hand = [(1, "Coppe")]
+        engine.players[1].hand = [(4, "Denari")]
+        engine.current_player_idx = 0
+
+        moved = engine.play_card(0, (1, "Coppe"))
+
+        self.assertTrue(moved)
+        self.assertEqual(len(engine.moves_played), 1)
+        turn = engine.moves_played[0]
+        self.assertEqual(turn["player_name"], "Tu")
+        self.assertEqual(turn["played_card"], (1, "Coppe"))
+        self.assertIn("decision_log", turn)
+        self.assertEqual(turn["decision_log"]["chosen_card"], (1, "Coppe"))
+        self.assertIn("reasoning", turn["decision_log"])
+
+    def test_round_history_turns_include_ai_decision_log(self):
+        engine = GameEngine(2, ["Tu", "AI"])
+        engine.reset()
+        engine.table = [(4, "Denari"), (4, "Coppe")]
+        engine.players[0].hand = []
+        engine.players[1].hand = [(8, "Bastoni")]
+        engine.current_player_idx = 1
+
+        strategy = ExpertAI()
+        selected_card, selected_combo = strategy.choose_move(
+            engine.players[1].hand,
+            engine.table,
+            seen_cards=engine.seen_cards,
+            player_scores={"team_captured": list(engine.players[1].captured)},
+        )
+        engine.play_card(1, selected_card, capture_combo=selected_combo, decision_log=strategy.get_last_decision_log())
+
+        self.assertEqual(len(engine.round_history), 1)
+        history_entry = engine.round_history[0]
+        turns = history_entry["turns"]
+        self.assertEqual(len(turns), 1)
+        decision_log = turns[0]["decision_log"]
+        self.assertEqual(decision_log["strategy"], "expert")
+        self.assertEqual(decision_log["chosen_card"], (8, "Bastoni"))
+        self.assertEqual(decision_log["chosen_combo"], [(4, "Denari"), (4, "Coppe")])
+        self.assertIn("scopa_probability", decision_log)
 
 
 if __name__ == "__main__":

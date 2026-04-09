@@ -42,7 +42,7 @@ class GameEngine:
         self.last_capturer_idx = 0
         self.game_active = False
 
-        self.moves_played = []  # type: List[Tuple[str, Card]]
+        self.moves_played = []  # type: List[Dict[str, Any]]
         self.final_scores = []  # type: List[Dict]
         self.round_scores = []  # type: List[Dict]
         self.tournament_scores = {}  # type: Dict[int, Dict]
@@ -143,7 +143,13 @@ class GameEngine:
                 return player
         return self.players[0]
 
-    def play_card(self, player_idx: int, card: Card, capture_combo: Optional[List[Card]] = None) -> bool:
+    def play_card(
+        self,
+        player_idx: int,
+        card: Card,
+        capture_combo: Optional[List[Card]] = None,
+        decision_log: Optional[Dict[str, Any]] = None,
+    ) -> bool:
         player = self.players[player_idx]
         if not player.has_card(card):
             return False
@@ -152,10 +158,11 @@ class GameEngine:
         sweep_scored = False
         restocked = False
         round_end_summary = {}
+        hand_snapshot = list(player.hand)
+        table_snapshot = list(self.table)
 
         player.remove_from_hand(card)
         self.seen_cards.add(card)
-        self.moves_played.append((player.name, card))
 
         possible_captures = ScoringEngine.find_captures(card, self.table)
         captured_combo = self._choose_capture_combo(card, possible_captures, capture_combo)
@@ -174,6 +181,23 @@ class GameEngine:
             self.last_capturer_idx = player_idx
         else:
             self.table.append(card)
+
+        normalized_decision_log = self._normalize_decision_log(
+            player=player,
+            played_card=card,
+            captured_combo=captured_combo,
+            decision_log=decision_log,
+        )
+        self.moves_played.append(
+            {
+                "player_name": player.name,
+                "played_card": card,
+                "captured_cards": list(captured_combo),
+                "hand": hand_snapshot,
+                "table": table_snapshot,
+                "decision_log": normalized_decision_log,
+            }
+        )
 
         if all(len(current.hand) == 0 for current in self.players):
             if self.num_players == 2 and self.deck_remaining:
@@ -357,7 +381,8 @@ class GameEngine:
                 "scores": self._clone_scores(scores),
                 "round_scores": self._clone_scores(self.round_scores),
                 "num_players": self.num_players,
-                "moves": self.moves_played.copy(),
+                "turns": self._clone_moves(self.moves_played),
+                "moves": self._clone_moves(self.moves_played),
                 "game_mode": self.game_mode,
                 "dealer_idx": self.dealer_idx,
                 "round_number": self.round_number,
@@ -374,7 +399,7 @@ class GameEngine:
         possible_captures: List[List[Card]],
         preferred_capture: Optional[List[Card]] = None,
     ) -> List[Card]:
-        legal_captures = [list(combo) for combo in possible_captures if combo]
+        legal_captures = ScoringEngine.filter_min_card_captures(possible_captures)
         if not legal_captures:
             return []
 
@@ -384,10 +409,7 @@ class GameEngine:
                 if self._normalize_capture_combo(combo) == preferred_key:
                     return combo
 
-        equal_value_captures = [combo for combo in legal_captures if len(combo) == 1 and combo[0][0] == played_card[0]]
-        candidates = equal_value_captures if equal_value_captures else legal_captures
-
-        return max(candidates, key=self._capture_priority_key)
+        return max(legal_captures, key=self._capture_priority_key)
 
     def _capture_priority_key(self, combo: List[Card]) -> Tuple[int, int, int, int, Tuple[Card, ...]]:
         denari_count = sum(1 for card in combo if card[1] == DENARI_SUIT)
@@ -404,6 +426,31 @@ class GameEngine:
     def _normalize_capture_combo(self, combo: List[Card]) -> Tuple[Card, ...]:
         return tuple(sorted(combo))
 
+    def _normalize_decision_log(
+        self,
+        player: Player,
+        played_card: Card,
+        captured_combo: List[Card],
+        decision_log: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        base_log = {
+            "strategy": "human" if player.is_human else "normal",
+            "candidates_evaluated": 0,
+            "chosen_card": played_card,
+            "chosen_combo": list(captured_combo),
+            "reasoning": "mossa eseguita",
+        }
+        if not decision_log:
+            return base_log
+
+        normalized = dict(base_log)
+        normalized.update(decision_log)
+        normalized["chosen_card"] = normalized.get("chosen_card") or played_card
+        normalized["chosen_combo"] = list(captured_combo)
+        normalized["candidates_evaluated"] = max(0, int(normalized.get("candidates_evaluated", 0)))
+        normalized["reasoning"] = normalized.get("reasoning") or base_log["reasoning"]
+        return normalized
+
     def _clone_score_entry(self, score: Dict[str, Any]) -> Dict[str, Any]:
         cloned = dict(score)
         if "members" in cloned:
@@ -418,6 +465,21 @@ class GameEngine:
 
     def _clone_scores(self, scores: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         return [self._clone_score_entry(score) for score in scores]
+
+    def _clone_moves(self, moves: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        cloned_moves = []
+        for move in moves:
+            cloned_moves.append(
+                {
+                    "player_name": move.get("player_name"),
+                    "played_card": move.get("played_card"),
+                    "captured_cards": list(move.get("captured_cards", [])),
+                    "hand": list(move.get("hand", [])),
+                    "table": list(move.get("table", [])),
+                    "decision_log": dict(move.get("decision_log", {})),
+                }
+            )
+        return cloned_moves
 
     def get_game_state(self) -> dict:
         return {

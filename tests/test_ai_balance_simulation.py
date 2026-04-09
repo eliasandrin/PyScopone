@@ -34,7 +34,12 @@ class AIBalanceSimulationTests(unittest.TestCase):
             )
             if selected_card is None:
                 break
-            engine.play_card(current.id, selected_card, capture_combo=selected_combo or None)
+            engine.play_card(
+                current.id,
+                selected_card,
+                capture_combo=selected_combo or None,
+                decision_log=strategy.get_last_decision_log(),
+            )
             if engine.game_active:
                 engine.next_player()
             turns += 1

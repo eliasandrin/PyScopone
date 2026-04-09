@@ -84,9 +84,14 @@ class AIStrategyTests(unittest.TestCase):
         table = [(7, "Spade"), (4, "Denari"), (3, "Coppe")]
 
         chosen_card, chosen_combo = strategy.choose_move(hand, table)
+        decision_log = strategy.get_last_decision_log()
 
         self.assertEqual(chosen_card, (7, "Denari"))
-        self.assertEqual(chosen_combo, [(4, "Denari"), (3, "Coppe")])
+        self.assertEqual(chosen_combo, [(7, "Spade")])
+        self.assertEqual(decision_log["strategy"], "normal")
+        self.assertEqual(decision_log["chosen_card"], chosen_card)
+        self.assertEqual(decision_log["chosen_combo"], chosen_combo)
+        self.assertIn("reasoning", decision_log)
 
     def test_normal_ai_discard_avoids_settebello_when_possible(self):
         strategy = NormalAI()
@@ -103,10 +108,29 @@ class AIStrategyTests(unittest.TestCase):
         table = [(4, "Denari"), (4, "Coppe")]
 
         chosen_card, chosen_combo = strategy.choose_move(hand, table, seen_cards=set(), player_scores={"team_captured": []})
+        decision_log = strategy.get_last_decision_log()
 
         self.assertEqual(chosen_card, (8, "Bastoni"))
         self.assertEqual(chosen_combo, [(4, "Denari"), (4, "Coppe")])
         self.assertIn("scopa", strategy.get_last_decision_reason())
+        self.assertEqual(decision_log["strategy"], "expert")
+        self.assertIn("scopa_probability", decision_log)
+        self.assertIn("primiera_gain", decision_log)
+        self.assertIn("denari_count", decision_log)
+
+    def test_easy_ai_choose_move_populates_decision_log_fields(self):
+        strategy = EasyAI()
+        hand = [(2, "Coppe"), (8, "Bastoni")]
+        table = [(7, "Spade")]
+
+        strategy.choose_move(hand, table)
+        decision_log = strategy.get_last_decision_log()
+
+        self.assertEqual(decision_log["strategy"], "easy")
+        self.assertIn("candidates_evaluated", decision_log)
+        self.assertIn("chosen_card", decision_log)
+        self.assertIn("chosen_combo", decision_log)
+        self.assertIn("reasoning", decision_log)
 
     def test_get_ai_strategy_uses_supported_difficulties_and_fallback(self):
         self.assertIsInstance(get_ai_strategy("divertimento"), EasyAI)

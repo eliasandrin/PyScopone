@@ -39,8 +39,8 @@ class _DummyEngine:
     def get_current_player(self):
         return self.player
 
-    def play_card(self, player_idx, card, capture_combo=None):
-        self.play_calls.append((player_idx, card, capture_combo))
+    def play_card(self, player_idx, card, capture_combo=None, decision_log=None):
+        self.play_calls.append((player_idx, card, capture_combo, decision_log))
         return True
 
 
@@ -81,8 +81,22 @@ class _DummyApp:
 
 
 class MatchCoordinatorTests(unittest.TestCase):
-    def test_on_player_move_requests_choice_when_multiple_captures_exist(self):
+    def test_on_player_move_does_not_request_choice_when_minimum_capture_is_unique(self):
         engine = _DummyEngine()
+        engine.table = [(8, "Spade"), (1, "Denari"), (2, "Coppe"), (5, "Bastoni")]
+        scene = _DummyScene()
+        coordinator = MatchCoordinator(_DummyApp(), engine, scene)
+
+        coordinator.on_player_move((8, "Denari"))
+
+        self.assertIsNone(scene.requested_choice)
+        self.assertEqual(len(engine.play_calls), 1)
+        _, _, capture_combo, _ = engine.play_calls[0]
+        self.assertEqual(capture_combo, [(8, "Spade")])
+
+    def test_on_player_move_requests_choice_when_multiple_minimum_captures_exist(self):
+        engine = _DummyEngine()
+        engine.table = [(7, "Spade"), (7, "Coppe"), (4, "Denari"), (3, "Bastoni")]
         scene = _DummyScene()
         coordinator = MatchCoordinator(_DummyApp(), engine, scene)
 
@@ -90,6 +104,9 @@ class MatchCoordinatorTests(unittest.TestCase):
 
         self.assertIsNotNone(scene.requested_choice)
         self.assertEqual(len(engine.play_calls), 0)
+        _, options = scene.requested_choice
+        self.assertEqual(len(options), 2)
+        self.assertEqual(sorted(options), sorted([[(7, "Spade")], [(7, "Coppe")]]))
 
     def test_on_player_move_uses_explicit_selected_combo(self):
         engine = _DummyEngine()
@@ -100,10 +117,13 @@ class MatchCoordinatorTests(unittest.TestCase):
         coordinator.on_player_move((7, "Denari"), capture_combo=selected_combo)
 
         self.assertEqual(len(engine.play_calls), 1)
-        player_idx, card, capture_combo = engine.play_calls[0]
+        player_idx, card, capture_combo, decision_log = engine.play_calls[0]
         self.assertEqual(player_idx, 0)
         self.assertEqual(card, (7, "Denari"))
         self.assertEqual(capture_combo, selected_combo)
+        self.assertIsInstance(decision_log, dict)
+        self.assertEqual(decision_log.get("strategy"), "human")
+        self.assertEqual(decision_log.get("chosen_combo"), selected_combo)
 
 
 if __name__ == "__main__":

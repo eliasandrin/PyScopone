@@ -52,7 +52,7 @@ class MatchCoordinator:
             return
 
         current_player = self.engine.get_current_player()
-        legal_captures = [combo for combo in ScoringEngine.find_captures(card, self.engine.table) if combo]
+        legal_captures = ScoringEngine.filter_min_card_captures(ScoringEngine.find_captures(card, self.engine.table))
         if capture_combo is None and len(legal_captures) > 1:
             self.scene.request_capture_choice(card, legal_captures)
             return
@@ -61,7 +61,13 @@ class MatchCoordinator:
         source_rect = self.scene._get_hand_card_rect(current_player.id, card)
         captured_cards = selected_capture_combo
         captured_rects = self.scene._get_table_source_rects(captured_cards)
-        if not self.engine.play_card(current_player.id, card, capture_combo=captured_cards or None):
+        human_decision_log = self._build_human_decision_log(card, captured_cards, legal_captures)
+        if not self.engine.play_card(
+            current_player.id,
+            card,
+            capture_combo=captured_cards or None,
+            decision_log=human_decision_log,
+        ):
             self.scene._append_log("Mossa non valida.")
             return
 
@@ -171,7 +177,12 @@ class MatchCoordinator:
         source_rect = self.scene._get_hand_card_rect(current_player.id, selected_card)
         captured_cards = list(selected_capture_combo) if selected_capture_combo else self.scene._preview_captured_cards(selected_card)
         captured_rects = self.scene._get_table_source_rects(captured_cards)
-        self.engine.play_card(current_player.id, selected_card, capture_combo=captured_cards or None)
+        self.engine.play_card(
+            current_player.id,
+            selected_card,
+            capture_combo=captured_cards or None,
+            decision_log=strategy.get_last_decision_log(),
+        )
         self.scene._append_log("{0} gioca {1}".format(current_player.name, self.scene._format_card(selected_card)))
         self.scene._append_log("AI: {0}".format(strategy.get_last_decision_reason()))
         self.pending_ai_player_id = None
@@ -193,6 +204,16 @@ class MatchCoordinator:
                 if teammate.team == player.team:
                     team_captured.extend(teammate.captured)
         return {"team_captured": team_captured}
+
+    def _build_human_decision_log(self, card: "Card", selected_capture_combo, legal_captures) -> dict:
+        reasoning = "giocatore umano: scarto" if not selected_capture_combo else "giocatore umano: presa scelta"
+        return {
+            "strategy": "human",
+            "candidates_evaluated": len(legal_captures),
+            "chosen_card": card,
+            "chosen_combo": list(selected_capture_combo or []),
+            "reasoning": reasoning,
+        }
 
     def _dispatch_results(self) -> None:
         if self.engine is None or self.result_dispatched:

@@ -1,7 +1,8 @@
 """AI strategies for Scopone."""
 
+from collections import OrderedDict
 import random
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from scopone.config.game import FULL_DECK, VALORI_PRIMIERA
 from scopone.engine.scoring import ScoringEngine
@@ -11,15 +12,48 @@ from scopone.types import Card
 class AIStrategy:
     """Base class for AI strategies in Scopone."""
 
+    STRATEGY_LOG_NAME = "base"
+
     def __init__(self, difficulty: str = "normale") -> None:
         self.difficulty = difficulty
         self.last_decision_reason = ""
+        self.last_decision_log = {
+            "strategy": self.STRATEGY_LOG_NAME,
+            "candidates_evaluated": 0,
+            "chosen_card": None,
+            "chosen_combo": [],
+            "reasoning": "",
+        }
 
     def get_last_decision_reason(self) -> str:
         return self.last_decision_reason or "Nessuna motivazione disponibile"
 
+    def get_last_decision_log(self) -> Dict[str, Any]:
+        return dict(self.last_decision_log)
+
     def _set_reason(self, reason: str) -> None:
         self.last_decision_reason = reason
+
+    def _set_decision(
+        self,
+        reason: str,
+        chosen_card: Optional[Card],
+        chosen_combo: Optional[List[Card]],
+        candidates_evaluated: int,
+        **extras: Any,
+    ) -> None:
+        self.last_decision_reason = reason
+        decision_log = {
+            "strategy": self.STRATEGY_LOG_NAME,
+            "candidates_evaluated": max(0, int(candidates_evaluated)),
+            "chosen_card": chosen_card,
+            "chosen_combo": list(chosen_combo or []),
+            "reasoning": reason,
+        }
+        for key, value in extras.items():
+            if value is not None:
+                decision_log[key] = value
+        self.last_decision_log = decision_log
 
     def choose_card(self, hand, table_cards, **kwargs):
         raise NotImplementedError
@@ -27,33 +61,48 @@ class AIStrategy:
     def choose_move(self, hand, table_cards, **kwargs) -> Tuple[Optional[Card], List[Card]]:
         chosen_card = self.choose_card(hand, table_cards, **kwargs)
         if chosen_card is None:
+            self._set_decision("mano vuota", None, [], 0)
             return None, []
-        captures = ScoringEngine.find_captures(chosen_card, table_cards)
-        return chosen_card, list(captures[0]) if captures and captures[0] else []
+        captures = ScoringEngine.filter_min_card_captures(ScoringEngine.find_captures(chosen_card, table_cards))
+        chosen_combo = list(captures[0]) if captures else []
+        self._set_decision("scelta base strategia", chosen_card, chosen_combo, len(hand))
+        return chosen_card, chosen_combo
 
 
 class EasyAI(AIStrategy):
+    STRATEGY_LOG_NAME = "easy"
+
     def choose_move(self, hand, table_cards, **kwargs) -> Tuple[Optional[Card], List[Card]]:
         del kwargs
 
         if not hand:
-            self._set_reason("mano vuota")
+            self._set_decision("mano vuota", None, [], 0)
             return None, []
 
         capture_candidates = []
         for card in hand:
-            possible_captures = [combo for combo in ScoringEngine.find_captures(card, table_cards) if combo]
+            possible_captures = ScoringEngine.filter_min_card_captures(ScoringEngine.find_captures(card, table_cards))
             if possible_captures:
                 capture_candidates.append((card, possible_captures))
 
         if capture_candidates:
             chosen_card, capture_options = random.choice(capture_candidates)
             chosen_combo = list(random.choice(capture_options))
-            self._set_reason("presa casuale disponibile (livello divertimento)")
+            self._set_decision(
+                "presa casuale disponibile (livello divertimento)",
+                chosen_card,
+                chosen_combo,
+                len(capture_candidates),
+            )
             return chosen_card, chosen_combo
 
         chosen = random.choice(hand)
-        self._set_reason("nessuna presa disponibile: scarto casuale (livello divertimento)")
+        self._set_decision(
+            "nessuna presa disponibile: scarto casuale (livello divertimento)",
+            chosen,
+            [],
+            len(hand),
+        )
         return chosen, []
 
     def choose_card(self, hand, table_cards, **kwargs):
@@ -62,21 +111,23 @@ class EasyAI(AIStrategy):
 
 
 class NormalAI(AIStrategy):
+    STRATEGY_LOG_NAME = "normal"
+
     def choose_move(self, hand, table_cards, **kwargs) -> Tuple[Optional[Card], List[Card]]:
         del kwargs
 
         if not hand:
-            self._set_reason("mano vuota")
+            self._set_decision("mano vuota", None, [], 0)
             return None, []
 
         best_card = None
         best_combo = []
         best_move_key = None
+        capture_candidates = 0
         for card in hand:
-            possible_captures = ScoringEngine.find_captures(card, table_cards)
+            possible_captures = ScoringEngine.filter_min_card_captures(ScoringEngine.find_captures(card, table_cards))
             for combo in possible_captures:
-                if not combo:
-                    continue
+                capture_candidates += 1
                 remaining_table = list(table_cards)
                 for captured_card in combo:
                     remaining_table.remove(captured_card)
@@ -93,7 +144,12 @@ class NormalAI(AIStrategy):
                     best_combo = list(combo)
 
         if best_card is not None:
-            self._set_reason("cattura: scelgo la presa con combinazione piu vantaggiosa")
+            self._set_decision(
+                "cattura: scelgo la presa con combinazione piu vantaggiosa",
+                best_card,
+                best_combo,
+                capture_candidates,
+            )
             return best_card, best_combo
 
         # Livello normale: mantiene valore immediato preservando i semi/carte piu pesanti.
@@ -106,7 +162,12 @@ class NormalAI(AIStrategy):
                 item[0],
             ),
         )
-        self._set_reason("nessuna presa: scarto carta di minor valore strategico")
+        self._set_decision(
+            "nessuna presa: scarto carta di minor valore strategico",
+            chosen,
+            [],
+            len(hand),
+        )
         return chosen, []
 
     def choose_card(self, hand, table_cards, **kwargs):
@@ -115,7 +176,14 @@ class NormalAI(AIStrategy):
 
 
 class ExpertAI(AIStrategy):
+    STRATEGY_LOG_NAME = "expert"
     PRIMIERA_VALUES = VALORI_PRIMIERA
+
+    def __init__(self, difficulty: str = "esperto", enable_scopa_cache: bool = True, scopa_cache_size: int = 256) -> None:
+        super().__init__(difficulty)
+        self.enable_scopa_cache = enable_scopa_cache
+        self.scopa_cache_size = max(32, scopa_cache_size)
+        self._scopa_cache = OrderedDict()
 
     def choose_move(
         self,
@@ -137,7 +205,15 @@ class ExpertAI(AIStrategy):
         else:
             best_move = self._choose_strategic_card_with_table(hand, table_cards, seen, player_scores)
 
-        self._set_reason(best_move["reason"])
+        self._set_decision(
+            best_move["reason"],
+            best_move["card"],
+            list(best_move.get("capture_combo", [])),
+            best_move.get("candidates_evaluated", 0),
+            scopa_probability=best_move.get("scopa_prob"),
+            primiera_gain=best_move.get("primiera_gain"),
+            denari_count=best_move.get("denari_gain"),
+        )
         return best_move["card"], list(best_move.get("capture_combo", []))
 
     def choose_card(
@@ -183,6 +259,9 @@ class ExpertAI(AIStrategy):
             f"({best['scopa_prob']:.1%}), evitando carte di valore"
         )
         best["capture_combo"] = []
+        best["primiera_gain"] = 0
+        best["denari_gain"] = 0
+        best["candidates_evaluated"] = len(candidates)
         return best
 
     def _calculate_real_primiera_gain(self, capture_combo: List[Card], player_scores: dict) -> int:
@@ -211,8 +290,7 @@ class ExpertAI(AIStrategy):
     def _choose_strategic_card_with_table(self, hand, table_cards, seen_cards, player_scores=None):
         moves = []
         for card in hand:
-            possible_captures = ScoringEngine.find_captures(card, table_cards)
-            legal_captures = [combo for combo in possible_captures if combo]
+            legal_captures = ScoringEngine.filter_min_card_captures(ScoringEngine.find_captures(card, table_cards))
             if legal_captures:
                 for capture_combo in legal_captures:
                     remaining_table = list(table_cards)
@@ -249,6 +327,8 @@ class ExpertAI(AIStrategy):
                 }
             )
 
+        candidates_evaluated = len(moves)
+
         scopa_now = [move for move in moves if move["makes_scopa"]]
         if scopa_now:
             best = max(
@@ -261,6 +341,7 @@ class ExpertAI(AIStrategy):
                 ),
             )
             best["reason"] = "faccio scopa immediata (priorita massima)"
+            best["candidates_evaluated"] = candidates_evaluated
             return best
 
         safe_captures = [move for move in moves if move["is_capture"] and move["scopa_prob"] <= 1e-9]
@@ -285,6 +366,7 @@ class ExpertAI(AIStrategy):
                 best["reason"] = "presa sicura (0% scopa concessa) e prendo piu carte"
             else:
                 best["reason"] = "presa singola sicura (0% scopa concessa)"
+            best["candidates_evaluated"] = candidates_evaluated
             return best
 
         discard_moves = [move for move in moves if not move["is_capture"]]
@@ -303,6 +385,7 @@ class ExpertAI(AIStrategy):
                 "nessuna presa sicura: scarto la carta con rischio scopa minimo "
                 f"({best['scopa_prob']:.1%})"
             )
+            best["candidates_evaluated"] = candidates_evaluated
             return best
 
         best = min(
@@ -319,6 +402,7 @@ class ExpertAI(AIStrategy):
             "solo prese rischiose disponibili: scelgo quella con rischio scopa minore "
             f"({best['scopa_prob']:.1%})"
         )
+        best["candidates_evaluated"] = candidates_evaluated
         return best
 
     def _opponent_scopa_probability(
@@ -330,6 +414,11 @@ class ExpertAI(AIStrategy):
     ) -> float:
         if not table_after_move:
             return 0.0
+
+        cache_key = self._build_scopa_cache_key(table_after_move, seen_cards, hand_cards, played_card)
+        if self.enable_scopa_cache and cache_key in self._scopa_cache:
+            self._scopa_cache.move_to_end(cache_key)
+            return self._scopa_cache[cache_key]
 
         unavailable = set(seen_cards)
         unavailable.update(hand_cards)
@@ -346,7 +435,21 @@ class ExpertAI(AIStrategy):
             if captures and captures[0] and len(captures[0]) == len(table_after_move):
                 scopa_cards += 1
 
-        return scopa_cards / len(opponent_candidates)
+        probability = scopa_cards / len(opponent_candidates)
+        if self.enable_scopa_cache:
+            self._scopa_cache[cache_key] = probability
+            if len(self._scopa_cache) > self.scopa_cache_size:
+                self._scopa_cache.popitem(last=False)
+
+        return probability
+
+    def _build_scopa_cache_key(self, table_after_move, seen_cards, hand_cards, played_card) -> Tuple[Any, ...]:
+        return (
+            tuple(sorted(table_after_move)),
+            tuple(sorted(hand_cards)),
+            tuple(sorted(seen_cards)),
+            played_card,
+        )
 
 def get_ai_strategy(difficulty: str = "normale") -> AIStrategy:
     strategies = {
