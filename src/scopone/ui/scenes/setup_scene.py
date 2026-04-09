@@ -10,6 +10,7 @@ class SetupScene(Scene):
     """Collects match settings before entering gameplay."""
 
     def __init__(self, app) -> None:
+        """Inizializza opzioni configurazione pre-partita."""
         super().__init__(app)
         self.difficulties = [
             ("Divertimento", "divertimento"),
@@ -29,6 +30,7 @@ class SetupScene(Scene):
         self.audio_button_rect = pygame.Rect(0, 0, 0, 0)
 
     def handle_event(self, event) -> None:
+        """Gestisce click sui controlli della schermata di setup."""
         if event.type != pygame.MOUSEBUTTONDOWN or event.button != 1:
             return
 
@@ -62,6 +64,7 @@ class SetupScene(Scene):
             break
 
     def render(self, renderer) -> None:
+        """Renderizza schermata setup con opzioni e azioni principali."""
         width, height = renderer.surface.get_size()
         layout = self._calculate_layout(width, height)
         mouse_pos = pygame.mouse.get_pos()
@@ -151,6 +154,7 @@ class SetupScene(Scene):
         )
 
     def _calculate_layout(self, width: int, height: int):
+        """Calcola layout responsivo dei controlli setup."""
         # The menu uses percentages of the current display size instead of fixed
         # coordinates, so the same composition stays centered in windowed mode
         # and after a fullscreen switch.
@@ -230,4 +234,5 @@ class SetupScene(Scene):
         }
 
     def _clamp(self, value: int, minimum: int, maximum: int) -> int:
+        """Clamp intero helper per i calcoli di layout."""
         return max(minimum, min(maximum, value))

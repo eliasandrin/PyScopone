@@ -13,6 +13,7 @@ class AudioManager:
     """Loads optional WAV assets and falls back to generated PCM effects."""
 
     def __init__(self) -> None:
+        """Prepara catalogo suoni e fallback sintetici se file mancanti."""
         self.available = pygame.mixer.get_init() is not None
         self.audio_root = Path(__file__).resolve().parents[3] / "assets" / "audio"
         self.sounds = {}
@@ -36,6 +37,7 @@ class AudioManager:
         ))
 
     def play(self, event_name: str) -> None:
+        """Riproduce un effetto audio se disponibile e non in errore."""
         if not self.available:
             return
 
@@ -49,6 +51,7 @@ class AudioManager:
             return
 
     def set_muted(self, muted: bool) -> None:
+        """Aggiorna stato mute globale e volume dei suoni gia caricati."""
         self.is_muted = bool(muted)
         if not self.available:
             return
@@ -62,6 +65,7 @@ class AudioManager:
                 continue
 
     def _register_sound(self, name: str, sound) -> None:
+        """Registra sound nel dizionario interno e salva volume di default."""
         self.sounds[name] = sound
         if sound is None:
             return
@@ -72,6 +76,7 @@ class AudioManager:
             return
 
     def _load_sound(self, candidates, fallback_builder):
+        """Carica primo file valido tra candidati o usa builder fallback."""
         for candidate in candidates:
             path = self.audio_root / candidate
             if not path.exists():
@@ -89,6 +94,7 @@ class AudioManager:
         return sound
 
     def _build_deal_sound(self):
+        """Genera effetto sintetico breve per distribuzione carte."""
         return self._build_pcm_sound(
             [
                 (620.0, 0.03, 0.18),
@@ -97,6 +103,7 @@ class AudioManager:
         )
 
     def _build_play_sound(self):
+        """Genera effetto sintetico per giocata carta."""
         return self._build_pcm_sound(
             [
                 (220.0, 0.045, 0.26),
@@ -105,6 +112,7 @@ class AudioManager:
         )
 
     def _build_capture_sound(self):
+        """Genera effetto sintetico per presa/cattura."""
         return self._build_pcm_sound(
             [
                 (340.0, 0.05, 0.18),
@@ -114,6 +122,7 @@ class AudioManager:
         )
 
     def _build_pcm_sound(self, tone_segments):
+        """Crea un pygame.Sound da segmenti tono (freq, durata, ampiezza)."""
         if not self.available:
             return None
 

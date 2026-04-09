@@ -13,6 +13,7 @@ class RoundOverlayManager:
     """Tracks round-end overlay state, text rows, and rendering."""
 
     def __init__(self, scene) -> None:
+        """Inizializza stato overlay di fine smazzata."""
         self.scene = scene
         self.active = False
         self.rows = []
@@ -21,6 +22,7 @@ class RoundOverlayManager:
         self.prompt_timer = 0.0
 
     def reset(self) -> None:
+        """Ripristina overlay in stato inattivo."""
         self.active = False
         self.rows = []
         self.result = {}
@@ -28,6 +30,7 @@ class RoundOverlayManager:
         self.prompt_timer = 0.0
 
     def update(self, dt: float) -> None:
+        """Aggiorna blink del prompt quando overlay e attivo."""
         if not self.active:
             return
         self.prompt_timer += dt * 1000.0
@@ -36,6 +39,7 @@ class RoundOverlayManager:
             self.prompt_timer = 0.0
 
     def show(self, move_result) -> None:
+        """Attiva overlay e prepara righe riepilogo del round."""
         self.active = True
         self.prompt_visible = True
         self.prompt_timer = 0.0
@@ -43,11 +47,13 @@ class RoundOverlayManager:
         self.rows = self._build_rows(self.result.get("round_scores", []))
 
     def consume_result(self):
+        """Restituisce risultato corrente e resetta overlay."""
         result = dict(self.result)
         self.reset()
         return result
 
     def draw(self, renderer) -> None:
+        """Disegna overlay modale con punteggi round e prompt conferma."""
         width, height = renderer.surface.get_size()
         dimmer = pygame.Surface((width, height), pygame.SRCALPHA)
         dimmer.fill((0, 0, 0, 170))
@@ -96,6 +102,7 @@ class RoundOverlayManager:
             )
 
     def _build_rows(self, round_scores):
+        """Converte score entries in righe testuali leggibili da UI."""
         rows = []
         if not round_scores:
             return rows
@@ -118,4 +125,5 @@ class RoundOverlayManager:
         return rows
 
     def _clamp(self, value: int, minimum: int, maximum: int) -> int:
+        """Clamp intero helper per calcolo dimensioni overlay."""
         return max(minimum, min(maximum, value))

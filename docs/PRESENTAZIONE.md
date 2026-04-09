@@ -1,69 +1,94 @@
 # PRESENTAZIONE - PyScopone
 
-## Cos'e PyScopone
+## 1. Titolo e contesto
 
-PyScopone e un progetto Python che implementa il gioco tradizionale dello Scopone con:
-- regole fedeli
-- AI a difficolta crescente
-- interfaccia grafica Pygame moderna
+PyScopone e un progetto software in Python che realizza il gioco tradizionale dello Scopone.
+Il progetto nasce con due obiettivi: didattico (architettura pulita) e pratico (gioco completo e stabile).
 
-## Obiettivo
+## 2. Problema e obiettivi
 
-L'obiettivo e doppio:
-1. didattico: mostrare una architettura software pulita (engine separato dalla UI)
-2. pratico: fornire un gioco completo, stabile e testato
+### Problema
 
-## Architettura in breve
+Nei progetti gioco e comune trovare logica e interfaccia mescolate, con codice difficile da estendere o testare.
 
-Il progetto e organizzato in moduli chiari:
-- `engine`: regole partita, turni, punteggio, gestione torneo
-- `ai`: strategie Easy / Normal / Expert
-- `ui`: scene Pygame, rendering carte, animazioni, audio
-- `models`: entita di dominio (`Player`)
-- `config`: costanti gioco/UI
+### Obiettivi
 
-Flusso runtime:
-1. `SetupScene` configura la partita
-2. `MatchScene` gestisce la partita live
-3. `ResultsScene` mostra il risultato finale
+1. Implementare le regole in modo fedele e verificabile.
+2. Separare in modo netto logica di gioco e UI.
+3. Offrire piu livelli AI per una difficolta progressiva.
 
-## AI
+## 3. Soluzione proposta
 
-- **Easy**: comportamento semplice e casuale
-- **Normal**: scelta orientata al valore immediato della presa
-- **Expert**: strategia avanzata con analisi del rischio scopa e priorita tattiche
+La soluzione e una applicazione modulare basata su package separati:
 
-Ogni mossa AI puo essere tracciata con un decision log utile per debugging e spiegazione in demo.
+1. engine: stato partita, turni, prese legali, scoring, gestione round e torneo.
+2. ai: strategie Easy, Normal, Expert con factory di selezione.
+3. ui: scene Pygame, rendering, animazioni, log e overlay.
+4. models: Player e stato relativo a mano, prese e scope.
+5. config: costanti di gioco e costanti UI centralizzate.
 
-## GUI
+## 4. Architettura e flusso runtime
 
-La GUI usa Pygame con:
-- game loop esplicito (`input -> update -> render`)
-- scene separate
-- animazioni non bloccanti (tween)
-- rendering carte da atlas trevisane
-- overlay interattivi (menu, log, scelta presa, fine smazzata)
+### Componenti principali
 
-## Punti forti
+1. GameApp: bootstrap applicazione e game loop.
+2. SceneManager: gestione transizioni scena.
+3. SetupScene: configurazione partita.
+4. MatchScene: partita live.
+5. ResultsScene: schermata finale.
+6. GameEngine: regole e stato.
+7. ScoringEngine: calcolo punteggi e primiera.
 
-- separazione netta tra logica e presentazione
-- test automatici su engine, scoring, AI, UI smoke
-- supporto 2-player e 4-player
-- codice leggibile e facilmente estendibile
+### Flusso
 
-## Possibili sviluppi futuri
+1. L utente configura partita in SetupScene.
+2. MatchScene avvia GameEngine con i parametri scelti.
+3. Ogni turno aggiorna Tavolo, Mano, Prese e log decisionale.
+4. A fine round/torneo, ResultsScene mostra risultati e vincitore.
 
-1. Profili AI aggiuntivi (difensivo/aggressivo)
-2. Telemetria partita (metriche avanzate UI+AI)
-3. Replay delle mani e storico partite esportabile
-4. Ottimizzazioni rendering aggiuntive per hardware low-end
+## 5. Intelligenza artificiale
 
-## Messaggio finale per la classe
+1. EasyAI: comportamento semplice e casuale.
+2. NormalAI: privilegia il valore immediato della presa.
+3. ExpertAI: aggiunge valutazione tattica, rischio Scopa e memoria delle carte già giocate.
 
-PyScopone dimostra come un gioco classico possa essere trasformato in un progetto software completo:
-- regole corrette
-- architettura modulare
-- UI moderna
-- qualita garantita da test
 
-E un buon esempio di progetto "pronto demo" e "pronto manutenzione".
+## 6. Regole e dominio gestiti
+
+Il dominio rispetta la terminologia del progetto:
+
+1. Card come coppia (value, suit).
+2. Mano, Tavolo, Prese e Scopa.
+3. Criteri punteggio: Carte, Denari, Settebello, Primiera, Scope.
+
+## 7. Risultati ottenuti
+
+1. Regole implementate in modo consistente.
+2. Architettura modulare e facilmente estendibile.
+3. Esperienza utente fluida con scene e animazioni.
+4. Base solida per evoluzioni future senza riscrivere il core.
+
+## 8. Limiti attuali
+
+1. Assenza di modalita rete/multiplayer online.
+2. Nessun sistema replay completo delle mani.
+3. Possibili ulteriori ottimizzazioni grafiche su hardware molto lento.
+
+## 9. Sviluppi futuri
+
+1. Satistiche avanzate con database per memorizzarle.
+3. Replay completo con storico esportabile.
+4. Ottimizzazioni rendering addizionali per dispositivi low-end.
+
+## 12. Conclusione
+
+PyScopone dimostra che un gioco tradizionale puo diventare un progetto software moderno, con:
+
+1. architettura chiara
+2. regole affidabili
+3. AI progressiva
+4. interfaccia reattiva
+
+
+
+

@@ -19,6 +19,7 @@ class ResultsScene(Scene):
     """Shows the final scores in a text-driven two-column layout."""
 
     def __init__(self, app, final_scores, settings, log_messages):
+        """Inizializza stato risultati con scoreboard e storico round."""
         super().__init__(app)
         self.final_scores = list(final_scores)
         self.settings = dict(settings)
@@ -29,6 +30,7 @@ class ResultsScene(Scene):
         self.audio_button_rect = pygame.Rect(0, 0, 0, 0)
 
     def handle_event(self, event) -> None:
+        """Gestisce input risultati: replay, menu, uscita e toggle audio."""
         if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
             self.app.show_setup()
             return
@@ -57,6 +59,7 @@ class ResultsScene(Scene):
             return
 
     def render(self, renderer) -> None:
+        """Renderizza confronto finale squadre con azioni post-partita."""
         width, height = renderer.surface.get_size()
         mouse_pos = pygame.mouse.get_pos()
         layout = self._calculate_layout(width, height)
@@ -99,6 +102,7 @@ class ResultsScene(Scene):
         )
 
     def _build_subtitle(self) -> str:
+        """Compone sottotitolo con modalita, difficolta e visibilita carte."""
         difficulty_labels = {
             "divertimento": "Divertimento",
             "normale": "Normale",
@@ -113,6 +117,7 @@ class ResultsScene(Scene):
         return "{0} | {1} | {2} | {3}".format(match_type, mode_label, difficulty, visibility)
 
     def _build_title(self) -> str:
+        """Genera titolo dinamico con esito vincitore o pareggio."""
         winner_team_id = self._get_winner_team_id()
         if winner_team_id is None:
             if self.settings.get("game_mode") == MODE_TOURNAMENT:
@@ -125,12 +130,14 @@ class ResultsScene(Scene):
         return "{0} VINCE LA PARTITA!".format(winner_team_label)
 
     def _get_winner_team_id(self):
+        """Restituisce team vincente o None in caso di totale in parita."""
         left_total, right_total = self._extract_final_totals()
         if left_total == right_total:
             return None
         return 0 if left_total > right_total else 1
 
     def _extract_round_rows(self):
+        """Estrae punti per round delle due squadre dallo storico."""
         rows = []
         for history_entry in self.round_history:
             round_number = history_entry.get("round_number", len(rows) + 1)
@@ -140,10 +147,12 @@ class ResultsScene(Scene):
         return rows
 
     def _extract_final_totals(self):
+        """Estrae i totali finali delle squadre dalla classifica finale."""
         lookup = dict((score.get("team_id", score.get("team", 0)), score.get("total", 0)) for score in self.final_scores)
         return lookup.get(0, 0), lookup.get(1, 0)
 
     def _build_columns(self):
+        """Costruisce colonne output in base a formato 4-player o 2-player."""
         if self.settings["num_players"] == 4 and all("team" in score for score in self.final_scores):
             score_lookup = {score["team"]: score for score in self.final_scores}
             return [
@@ -174,6 +183,7 @@ class ResultsScene(Scene):
         ]
 
     def _build_team_column(self, team_id: int, score: dict):
+        """Crea payload colonna risultati per una squadra."""
         is_tournament = self.settings.get("game_mode") == MODE_TOURNAMENT
         members = score.get("members") or []
         if is_tournament:
@@ -202,6 +212,7 @@ class ResultsScene(Scene):
         }
 
     def _build_player_column(self, team_id: int, score: dict, fallback_name: str):
+        """Crea payload colonna risultati per una singola entita player."""
         is_tournament = self.settings.get("game_mode") == MODE_TOURNAMENT
         player_name = score.get("player", fallback_name)
         if is_tournament:
@@ -230,6 +241,7 @@ class ResultsScene(Scene):
         }
 
     def _build_round_point_entries(self, team_id: int):
+        """Raccoglie progressione punti per round della squadra indicata."""
         entries = []
         for index, history_entry in enumerate(self.round_history, start=1):
             round_label = history_entry.get("round_number", index)
@@ -244,6 +256,7 @@ class ResultsScene(Scene):
         return entries
 
     def _draw_column(self, renderer, column: dict, center_x: int, top_y: int, layout: dict) -> None:
+        """Disegna una colonna completa (titolo, membri, stats)."""
         renderer.draw_text(
             column["team_name"],
             (center_x, top_y),
@@ -289,6 +302,7 @@ class ResultsScene(Scene):
         }
 
     def _draw_winner(self, renderer, columns, left_metrics: dict, right_metrics: dict, layout: dict) -> None:
+        """Evidenzia vincitore o pareggio sotto i totali principali."""
         left_total = columns[0]["total"]
         right_total = columns[1]["total"]
         left_total_rect = left_metrics.get("total_rect")
@@ -324,6 +338,7 @@ class ResultsScene(Scene):
         )
 
     def _draw_actions(self, renderer, layout: dict, mouse_pos) -> None:
+        """Disegna pulsanti azione finali (replay/menu/exit)."""
         self.buttons = {}
         button_specs = [
             ("play_again", "Gioca ancora", "success", layout["buttons"][0]),
@@ -341,6 +356,7 @@ class ResultsScene(Scene):
             )
 
     def _calculate_layout(self, width: int, height: int):
+        """Calcola dimensioni responsive della schermata risultati."""
         title_size = self._clamp(int(width * 0.05), 54, 76)
         subtitle_size = self._clamp(int(width * 0.0135), 18, 22)
         team_name_size = self._clamp(int(width * 0.025), 30, 40)
@@ -386,4 +402,5 @@ class ResultsScene(Scene):
         }
 
     def _clamp(self, value: int, minimum: int, maximum: int) -> int:
+        """Clamp intero helper per i calcoli di layout."""
         return max(minimum, min(maximum, value))

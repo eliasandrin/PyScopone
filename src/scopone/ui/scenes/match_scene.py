@@ -49,6 +49,7 @@ class MatchScene(Scene):
     """Renders the live match and delegates turn-flow orchestration."""
 
     def __init__(self, app, settings: dict) -> None:
+        """Inizializza scena live, engine, overlay e coordinatori di flusso."""
         super().__init__(app)
         self.settings = dict(settings)
         self.settings.setdefault("game_mode", MODE_QUICK)
@@ -88,6 +89,7 @@ class MatchScene(Scene):
         self._start_new_game()
 
     def _start_new_game(self) -> None:
+        """Crea una nuova partita e riallinea tutti i registri visuali."""
         player_names = [DEFAULT_PLAYER_NAMES[index] if index > 0 else "Tu" for index in range(self.settings["num_players"])]
         self.engine = GameEngine(
             self.settings["num_players"],
@@ -119,11 +121,13 @@ class MatchScene(Scene):
         self.coordinator.bind_engine(self.engine)
 
     def _append_log(self, message: str) -> None:
+        """Aggiunge una voce log mantenendo una finestra recente limitata."""
         self.log_messages.append(message)
         if len(self.log_messages) > 40:
             self.log_messages = self.log_messages[-40:]
 
     def handle_event(self, event) -> None:
+        """Gestisce input della scena con priorita a overlay e menu modali."""
         if self.engine is None:
             return
 
@@ -180,6 +184,7 @@ class MatchScene(Scene):
             return
 
         if self.capture_choice_active:
+            # Finche la scelta presa e aperta, ogni click va risolto li.
             self._handle_capture_choice_click(event.pos)
             return
 
@@ -196,6 +201,7 @@ class MatchScene(Scene):
                 return
 
     def _handle_menu_click(self, pos) -> None:
+        """Gestisce le azioni disponibili nel menu di pausa partita."""
         for action, rect in self.menu_buttons.items():
             if not rect.collidepoint(pos):
                 continue
@@ -218,6 +224,7 @@ class MatchScene(Scene):
             return
 
     def _return_to_setup(self) -> None:
+        """Rilascia stato match e torna alla scena setup."""
         self.menu_open = False
         self.log_visible = False
         self.log_dragging = False
@@ -235,12 +242,14 @@ class MatchScene(Scene):
         self.app.show_setup()
 
     def _cycle_difficulty(self) -> None:
+        """Ruota ciclicamente il livello AI selezionato nel menu."""
         difficulties = ["divertimento", "normale", "esperto"]
         current = difficulties.index(self.settings["difficulty"]) if self.settings["difficulty"] in difficulties else 1
         self.settings["difficulty"] = difficulties[(current + 1) % len(difficulties)]
         self._append_log("Difficolta AI impostata su {0}.".format(self.settings["difficulty"]))
 
     def update(self, dt: float) -> None:
+        """Aggiorna animazioni, overlay e coordinatore turni."""
         if self.engine is None:
             return
 
@@ -259,6 +268,7 @@ class MatchScene(Scene):
         self.coordinator.update(dt)
 
     def show_round_end_overlay(self, move_result) -> None:
+        """Mostra overlay di fine round con riepilogo punteggi."""
         if self.engine is None:
             return
 
@@ -266,6 +276,7 @@ class MatchScene(Scene):
         self._append_log("Fine smazzata. Premi INVIO per continuare.")
 
     def _confirm_round_end_overlay(self) -> None:
+        """Conferma overlay fine round e avvia round successivo se previsto."""
         if self.engine is None or not self.round_overlay.active:
             return
 
@@ -288,12 +299,15 @@ class MatchScene(Scene):
         self.coordinator.on_round_confirmed(move_result)
 
     def _queue_move_sequence(self, player, card, source_rect, captured_cards, captured_rects, move_result) -> None:
+        """Avvia la sequenza animata di una giocata (play o play+capture)."""
         if self.render_board is not None:
             self._remove_render_hand_card(player.id, card)
             for captured_card in captured_cards:
                 self._remove_render_table_card(captured_card)
 
         if source_rect is None or self.last_layout is None or move_result is None:
+            # Fallback robusto: se manca un punto di partenza grafico,
+            # riallinea lo stato visuale senza animazione per non bloccare il turno.
             if self.render_board is not None:
                 self.render_board.sync_from_engine(self.engine)
             self._after_move_animations(move_result)
@@ -354,11 +368,13 @@ class MatchScene(Scene):
         )
 
     def _finish_table_play(self, card, move_result) -> None:
+        """Completa animazione di sola posa carta sul Tavolo."""
         if self.render_board is not None:
             self.render_board.render_table_cards.append(card)
         self._after_move_animations(move_result)
 
     def _queue_capture_sequence(self, player_id: int, played_card, captured_cards, captured_rects, played_rect, move_result) -> None:
+        """Anima convergenza carte catturate verso la pila Prese della squadra."""
         if self.last_layout is None:
             if self.render_board is not None:
                 self.render_board.sync_from_engine(self.engine)
@@ -383,6 +399,8 @@ class MatchScene(Scene):
         vertical_target = self._is_vertical_capture_target(team_id)
 
         def handle_complete():
+            # Callback condivisa su tutte le carte: il turno si conclude solo
+            # quando l'ultima animazione di cattura ha terminato.
             remaining["count"] -= 1
             if remaining["count"] <= 0:
                 if self.render_board is not None:
@@ -423,18 +441,22 @@ class MatchScene(Scene):
             )
 
     def _after_move_animations(self, move_result) -> None:
+        """Notifica il coordinatore che la sequenza visuale e terminata."""
         self.coordinator.on_move_animation_finished(move_result)
 
     def _preview_captured_cards(self, card):
+        """Calcola combo presa default usata da preview/AI fallback."""
         if self.engine is None:
             return []
         return self.engine.select_capture_combo(card)
 
     def _get_table_source_rects(self, cards):
+        """Mappa carte Tavolo nei rispettivi rect visuali correnti."""
         table_rects = self.card_position_map.get("table", {})
         return dict((card, table_rects.get(card)) for card in cards if table_rects.get(card) is not None)
 
     def _draw_capture_preview_overlay(self, renderer, mouse_pos) -> None:
+        """Disegna highlight sulle carte che verrebbero prese dalla carta hoverata."""
         if self.engine is None or not self.coordinator.can_accept_player_input():
             return
 
@@ -454,12 +476,14 @@ class MatchScene(Scene):
             renderer.draw_card_capture_highlight(table_rect, alpha=CAPTURE_PREVIEW_ALPHA)
 
     def _get_hovered_human_card(self, mouse_pos):
+        """Restituisce la carta umana sotto il cursore (top-most first)."""
         for rect, card in reversed(self.card_hitboxes):
             if rect.collidepoint(mouse_pos):
                 return card
         return None
 
     def _get_hover_capture_preview_cards(self, card):
+        """Ritorna preview presa solo quando la scelta minima e non ambigua."""
         if self.engine is None:
             return []
 
@@ -471,9 +495,11 @@ class MatchScene(Scene):
         return list(legal_captures[0])
 
     def _format_card(self, card) -> str:
+        """Formatta carta in forma breve valore+simbolo seme."""
         return "{0}{1}".format(card[0], SIMBOLI[card[1]])
 
     def render(self, renderer) -> None:
+        """Render principale frame: board statico, animazioni, overlay e menu."""
         assert self.engine is not None
         assert self.render_board is not None
 
@@ -518,6 +544,7 @@ class MatchScene(Scene):
             self.round_overlay.draw(renderer)
 
     def request_capture_choice(self, card, capture_options) -> None:
+        """Apre l'overlay scelta presa quando esistono opzioni multiple valide."""
         legal_options = [list(combo) for combo in capture_options if combo]
         if len(legal_options) <= 1:
             return
@@ -528,6 +555,7 @@ class MatchScene(Scene):
         self._append_log("Seleziona la presa desiderata.")
 
     def _clear_capture_choice(self) -> None:
+        """Resetta lo stato dell'overlay scelta presa."""
         self.capture_choice_active = False
         self.capture_choice_card = None
         self.capture_choice_options = []
@@ -535,6 +563,7 @@ class MatchScene(Scene):
         self.capture_choice_panel_rect = pygame.Rect(0, 0, 0, 0)
 
     def _handle_capture_choice_click(self, pos) -> None:
+        """Gestisce click su opzioni presa o annullamento overlay."""
         if not self.capture_choice_buttons:
             return
 
@@ -555,6 +584,7 @@ class MatchScene(Scene):
         self._clear_capture_choice()
 
     def _draw_capture_choice_overlay(self, renderer, mouse_pos) -> None:
+        """Disegna pannello modale con combinazioni presa selezionabili."""
         if not self.capture_choice_active or not self.capture_choice_options:
             return
 
@@ -594,6 +624,7 @@ class MatchScene(Scene):
             )
 
     def _schedule_deal_sequence(self, layout, include_table: bool, only_player_ids, on_complete=None) -> None:
+        """Programma animazioni distribuzione iniziale Tavolo/Mani."""
         assert self.render_board is not None
 
         self.render_board.sync_from_engine(self.engine)
@@ -670,6 +701,7 @@ class MatchScene(Scene):
             on_complete()
 
     def _make_reveal_callback(self, area: str, player_id, card, registry, final_callback):
+        """Costruisce callback reveal che riallinea render_board a fine tween."""
         def callback():
             if self.render_board is not None:
                 if area == "table":
@@ -689,12 +721,15 @@ class MatchScene(Scene):
         return callback
 
     def _on_play_sound(self) -> None:
+        """Hook audio giocata carta."""
         self.app.audio.play("play")
 
     def _on_deal_sound(self) -> None:
+        """Hook audio distribuzione carta."""
         self.app.audio.play("deal")
 
     def _draw_table(self, renderer, rect: pygame.Rect) -> None:
+        """Disegna feltro Tavolo con effetti glow leggeri."""
         table_surface = pygame.Surface(rect.size, pygame.SRCALPHA)
         pygame.draw.rect(table_surface, (14, 32, 68, 118), table_surface.get_rect(), border_radius=34)
         pygame.draw.rect(table_surface, (176, 214, 255, 62), table_surface.get_rect(), width=2, border_radius=34)
@@ -707,15 +742,18 @@ class MatchScene(Scene):
         renderer.draw_text("Tavolo", (rect.centerx, rect.top + 14), size=24, bold=True, align="center")
 
     def _should_draw_deck_anchor(self) -> bool:
+        """Indica se mostrare ancora il retro mazzo residuo (solo 2 player)."""
         return self.engine.num_players == 2 and self.render_board is not None and self.render_board.render_deck_count > 0
 
     def _draw_deck_anchor(self, renderer, deck_rect: pygame.Rect) -> None:
+        """Disegna ancora del mazzo quando sono previste pescate residue."""
         # Draw the deck anchor only in 2-player mode.
         # Using animations.has_active() here caused a ghost card-back during play tweens.
         if self._should_draw_deck_anchor():
             renderer.draw_card((1, "Denari"), deck_rect, face_up=False)
 
     def _draw_table_cards(self, renderer, table_rect: pygame.Rect) -> None:
+        """Disegna carte attualmente visibili sul Tavolo e aggiorna rect map."""
         table_card_size = self.last_layout["table_card_size"] if self.last_layout is not None else CARD_SIZE_TABLE
         rect_map = self._get_table_card_rects(table_rect, self.render_board.render_table_cards, table_card_size)
         self.card_position_map["table"] = rect_map
@@ -728,6 +766,7 @@ class MatchScene(Scene):
             renderer.draw_card(card, rect_map[card], face_up=True)
 
     def _draw_players(self, renderer, layout) -> None:
+        """Disegna mani e label player in layout 2p o 4p."""
         hand_rect_maps = self._get_all_hand_rect_maps(layout)
         self.card_position_map["hands"] = hand_rect_maps
 
@@ -746,11 +785,13 @@ class MatchScene(Scene):
         self._draw_horizontal_label(renderer, self.engine.get_human_player(), layout["bottom_label_rect"])
 
     def _draw_horizontal_ai_hand(self, renderer, player, rect_map) -> None:
+        """Renderizza mano AI orizzontale, con eventuale visibilita completa."""
         show_cards = self._is_face_up_player(player)
         for card in self.render_board.ensure_player(player.id):
             renderer.draw_card(card, rect_map[card], face_up=show_cards)
 
     def _draw_vertical_ai_hand(self, renderer, player, rect_map, side: str) -> None:
+        """Renderizza mano AI verticale ruotata sul lato specificato."""
         del side
         show_cards = self._is_face_up_player(player)
         angle = self._get_player_angle(player.id)
@@ -758,6 +799,7 @@ class MatchScene(Scene):
             renderer.draw_card(card, rect_map[card], face_up=show_cards, angle=angle)
 
     def _draw_human_hand(self, renderer, player, rect_map) -> None:
+        """Renderizza mano umana e registra hitbox cliccabili a turno attivo."""
         visible_cards = list(self.render_board.ensure_player(player.id))
         if not visible_cards:
             if self.last_layout is not None:
@@ -777,6 +819,7 @@ class MatchScene(Scene):
                 self.card_hitboxes.append((card_rect, card))
 
     def _draw_horizontal_label(self, renderer, player, rect: pygame.Rect) -> None:
+        """Disegna etichetta orizzontale nome/team del player."""
         team_label, team_color = self._get_player_team_meta(player)
         current = player == self.engine.get_current_player() and self.engine.game_active and not self.menu_open
         label_surface = self._build_player_label_surface(renderer, player.name, team_label, team_color, current)
@@ -784,6 +827,7 @@ class MatchScene(Scene):
         renderer.surface.blit(label_surface, label_rect)
 
     def _draw_vertical_label(self, renderer, player, rect: pygame.Rect, side: str) -> None:
+        """Disegna etichetta verticale nome/team del player."""
         team_label, team_color = self._get_player_team_meta(player)
         current = player == self.engine.get_current_player() and self.engine.game_active and not self.menu_open
         base_surface = self._build_player_label_surface(renderer, player.name, team_label, team_color, current)
@@ -792,6 +836,7 @@ class MatchScene(Scene):
         renderer.surface.blit(rotated, rotated_rect)
 
     def _draw_live_score_panel(self, renderer, rect: pygame.Rect) -> None:
+        """Disegna pannello punteggi live con metriche principali per squadra."""
         panel_scale = self._clamp_float(rect.width / 322.0, 0.95, 1.35)
         title_size = self._clamp(int(20 * panel_scale), 18, 24)
         header_size = self._clamp(int(14 * panel_scale), 13, 18)
@@ -827,12 +872,15 @@ class MatchScene(Scene):
             y += row_gap
 
     def _get_live_team_rows(self):
+        """Costruisce righe score live distinguendo stato in-corsa/fine-round."""
         rows = []
         show_final_total = not self.engine.game_active
         is_tournament = self.settings.get("game_mode") == MODE_TOURNAMENT
         live_base = self.engine.get_live_tournament_scores() if is_tournament else {}
 
         if show_final_total:
+            # A fine round usa lo scoring ufficiale engine/scoring per evitare
+            # divergenze rispetto ai punti realmente assegnati.
             if self.engine.num_players == 4:
                 final_scores = {
                     score["team"]: score
@@ -880,6 +928,8 @@ class MatchScene(Scene):
             return rows
 
         for team_id in (0, 1):
+            # Durante la mano il totale live include solo Scope correnti e,
+            # in torneo, il cumulato storico gia consolidato.
             captured_cards = self.render_board.ensure_team(team_id)
             sweeps_value = self.render_board.ensure_sweeps(team_id)
             live_total = sweeps_value + (live_base.get(team_id, 0) if is_tournament else 0)
@@ -898,6 +948,7 @@ class MatchScene(Scene):
         return rows
 
     def _get_player_team_meta(self, player):
+        """Restituisce label squadra e colore associato al player."""
         if self.engine.num_players == 4 and player.team is not None:
             return "Squadra {0}".format(player.team + 1), TEAM_COLORS[player.team]
 
@@ -905,6 +956,7 @@ class MatchScene(Scene):
         return "Squadra {0}".format(team_id + 1), TEAM_COLORS[team_id]
 
     def _draw_menu_button(self, renderer, rect: pygame.Rect, mouse_pos) -> None:
+        """Disegna pulsante apertura menu partita."""
         hovered = rect.collidepoint(mouse_pos)
         self._draw_glass_panel(
             renderer,
@@ -916,6 +968,7 @@ class MatchScene(Scene):
         renderer.draw_text("Menu", rect.center, size=17, color=TEXT_COLOR, bold=True, align="center")
 
     def _draw_menu_overlay(self, renderer, rect: pygame.Rect, mouse_pos) -> None:
+        """Disegna overlay menu pausa con azioni e toggle principali."""
         dimmer = pygame.Surface(renderer.surface.get_size(), pygame.SRCALPHA)
         dimmer.fill((0, 0, 0, 132))
         renderer.surface.blit(dimmer, (0, 0))
@@ -999,6 +1052,7 @@ class MatchScene(Scene):
         )
 
     def _draw_log_overlay(self, renderer) -> None:
+        """Disegna finestra log trascinabile con ultime righe di debug."""
         if self.log_rect is None:
             return
 
@@ -1016,11 +1070,13 @@ class MatchScene(Scene):
             y = row.bottom + 6
 
     def _ensure_log_rect(self, width: int, height: int) -> None:
+        """Inizializza e valida posizione log panel rispetto allo schermo."""
         if self.log_rect is None:
             self.log_rect = pygame.Rect(width - 388, height - 286, 360, 250)
         self._clamp_log_rect()
 
     def _clamp_log_rect(self) -> None:
+        """Mantiene il log panel completamente dentro i limiti finestra."""
         if self.log_rect is None:
             return
         surface = self.app.renderer.surface
@@ -1029,6 +1085,7 @@ class MatchScene(Scene):
         self.log_rect.y = max(12, min(self.log_rect.y, height - self.log_rect.height - 12))
 
     def _draw_glass_panel(self, renderer, rect: pygame.Rect, color, border, alpha: int = 180) -> None:
+        """Disegna pannello semitrasparente con bordo brillante."""
         panel = pygame.Surface(rect.size, pygame.SRCALPHA)
         fill = (color[0], color[1], color[2], alpha)
         pygame.draw.rect(panel, fill, panel.get_rect(), border_radius=18)
@@ -1036,22 +1093,27 @@ class MatchScene(Scene):
         renderer.surface.blit(panel, rect.topleft)
 
     def _clamp(self, value: int, minimum: int, maximum: int) -> int:
+        """Clamp intero helper."""
         return max(minimum, min(maximum, value))
 
     def _clamp_float(self, value: float, minimum: float, maximum: float) -> float:
+        """Clamp float helper."""
         return max(minimum, min(maximum, value))
 
     def _scale_card_size(self, base_size, scale: float, minimum) -> tuple:
+        """Scala dimensioni carta con limiti inferiori e superiori."""
         return (
             self._clamp(int(base_size[0] * scale), minimum[0], int(base_size[0] * 1.6)),
             self._clamp(int(base_size[1] * scale), minimum[1], int(base_size[1] * 1.6)),
         )
 
     def _equidistant_gap(self, available_space: int, text_extent: int, cards_extent: int, minimum_gap: int) -> int:
+        """Distribuisce gap uniforme tra blocchi verticali/orizzontali."""
         gap = int((available_space - text_extent - cards_extent) / 3)
         return max(minimum_gap, gap)
 
     def _build_player_label_surface(self, renderer, player_name: str, team_label: str, team_color, current: bool) -> pygame.Surface:
+        """Costruisce surface etichetta player con stato attivo/non attivo."""
         label_scale = 1.0
         if self.last_layout is not None:
             label_scale = self._clamp_float(self.last_layout["hand_card_size"][0] / float(CARD_SIZE_HAND[0]), 0.95, 1.3)
@@ -1094,6 +1156,7 @@ class MatchScene(Scene):
         return surface
 
     def _get_all_hand_rect_maps(self, layout, hand_cards=None):
+        """Costruisce mappe rect per tutte le Mani in base al lato player."""
         rect_maps = {}
         hand_card_size = layout["hand_card_size"]
         small_card_size = layout["small_card_size"]
@@ -1127,6 +1190,7 @@ class MatchScene(Scene):
         return rect_maps
 
     def _get_horizontal_hand_rects(self, rect: pygame.Rect, cards, card_size, spacing_min: int, spacing_max: int, bottom_padding: int, lift: int):
+        """Calcola rect carte di una mano orizzontale."""
         rect_map = {}
         if not cards:
             return rect_map
@@ -1141,6 +1205,7 @@ class MatchScene(Scene):
         return rect_map
 
     def _get_vertical_hand_rects(self, rect: pygame.Rect, cards, card_size):
+        """Calcola rect carte di una mano verticale ruotata."""
         rect_map = {}
         if not cards:
             return rect_map
@@ -1156,6 +1221,7 @@ class MatchScene(Scene):
         return rect_map
 
     def _get_table_card_rects(self, table_rect: pygame.Rect, cards, card_size):
+        """Calcola rect carte disposte sul Tavolo."""
         rect_map = {}
         if not cards:
             return rect_map
@@ -1170,6 +1236,7 @@ class MatchScene(Scene):
         return rect_map
 
     def _get_table_stack_rect(self, table_rect: pygame.Rect, index: int, total_cards: int, card_size) -> pygame.Rect:
+        """Calcola rect di stack temporaneo usato nelle animazioni di cattura."""
         card_width, card_height = card_size
         spread = min(14, max(4, total_cards * 2))
         start_x = table_rect.centerx - (card_width // 2) - ((total_cards - 1) * spread // 2)
@@ -1177,6 +1244,7 @@ class MatchScene(Scene):
         return pygame.Rect(start_x + (index * spread), start_y + (index * max(3, spread // 2)), card_width, card_height)
 
     def draw_captured_piles(self, screen) -> None:
+        """Disegna pile Prese con stacking e piccolo bump all'ultima cattura."""
         if self.last_layout is None or self.render_board is None:
             return
 
@@ -1224,12 +1292,14 @@ class MatchScene(Scene):
             )
 
     def _get_capture_team_id(self, player_id: int) -> int:
+        """Risolve team destinatario delle Prese in base al formato match."""
         player = self.engine.players[player_id]
         if self.engine.num_players == 4 and player.team is not None:
             return player.team
         return player.id if player.id in (0, 1) else 0
 
     def _remove_render_hand_card(self, player_id: int, card) -> None:
+        """Rimuove una carta dalla mano renderizzata del player."""
         if self.render_board is None:
             return
         hand_cards = self.render_board.ensure_player(player_id)
@@ -1237,21 +1307,26 @@ class MatchScene(Scene):
             hand_cards.remove(card)
 
     def _remove_render_table_card(self, card) -> None:
+        """Rimuove una carta dall'elenco Tavolo renderizzato."""
         if self.render_board is None:
             return
         if card in self.render_board.render_table_cards:
             self.render_board.render_table_cards.remove(card)
 
     def _is_vertical_capture_target(self, team_id: int) -> bool:
+        """Indica se la pila Prese del team va orientata verticalmente."""
         return self.engine.num_players == 4 and team_id == 1
 
     def _get_default_capture_target(self, table_rect: pygame.Rect, small_card_size) -> pygame.Rect:
+        """Fallback rect target cattura quando manca layout pila esplicito."""
         return pygame.Rect(table_rect.right - small_card_size[0], table_rect.top, small_card_size[0], small_card_size[1])
 
     def _get_hand_card_rect(self, player_id: int, card):
+        """Recupera rect corrente di una carta in mano."""
         return self.card_position_map.get("hands", {}).get(player_id, {}).get(card)
 
     def _get_player_side(self, player_id: int) -> str:
+        """Mappa player_id al lato logico del tavolo (top/bottom/left/right)."""
         if player_id == 0:
             return "bottom"
         if self.engine.num_players == 2:
@@ -1263,6 +1338,7 @@ class MatchScene(Scene):
         return "right"
 
     def _get_player_angle(self, player_id: int) -> int:
+        """Restituisce angolo di render carte in base al lato player."""
         side = self._get_player_side(player_id)
         if side == "left":
             return 90
@@ -1271,4 +1347,5 @@ class MatchScene(Scene):
         return 0
 
     def _is_face_up_player(self, player) -> bool:
+        """Decide se mostrare carte del player scoperte (umano o modalita debug)."""
         return player.is_human or self.settings["show_all_cards"]

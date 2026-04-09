@@ -15,6 +15,7 @@ class AIStrategy:
     STRATEGY_LOG_NAME = "base"
 
     def __init__(self, difficulty: str = "normale") -> None:
+        """Inizializza metadati decisione condivisi da tutte le strategie."""
         self.difficulty = difficulty
         self.last_decision_reason = ""
         self.last_decision_log = {
@@ -26,12 +27,15 @@ class AIStrategy:
         }
 
     def get_last_decision_reason(self) -> str:
+        """Restituisce la motivazione testuale dell'ultima scelta AI."""
         return self.last_decision_reason or "Nessuna motivazione disponibile"
 
     def get_last_decision_log(self) -> Dict[str, Any]:
+        """Restituisce una copia del decision log in formato serializzabile."""
         return dict(self.last_decision_log)
 
     def _set_reason(self, reason: str) -> None:
+        """Aggiorna solo la motivazione sintetica, senza ricostruire il log."""
         self.last_decision_reason = reason
 
     def _set_decision(
@@ -42,6 +46,7 @@ class AIStrategy:
         candidates_evaluated: int,
         **extras: Any,
     ) -> None:
+        """Normalizza e salva i dettagli dell'ultima decisione della strategia."""
         self.last_decision_reason = reason
         decision_log = {
             "strategy": self.STRATEGY_LOG_NAME,
@@ -56,9 +61,11 @@ class AIStrategy:
         self.last_decision_log = decision_log
 
     def choose_card(self, hand, table_cards, **kwargs):
+        """Seleziona la carta da giocare; implementazione demandata alle sottoclassi."""
         raise NotImplementedError
 
     def choose_move(self, hand, table_cards, **kwargs) -> Tuple[Optional[Card], List[Card]]:
+        """Restituisce mossa completa (carta + eventuale combo di presa)."""
         chosen_card = self.choose_card(hand, table_cards, **kwargs)
         if chosen_card is None:
             self._set_decision("mano vuota", None, [], 0)
@@ -70,9 +77,12 @@ class AIStrategy:
 
 
 class EasyAI(AIStrategy):
+    """Strategia basilare: prende/scarta in modo prevalentemente casuale."""
+
     STRATEGY_LOG_NAME = "easy"
 
     def choose_move(self, hand, table_cards, **kwargs) -> Tuple[Optional[Card], List[Card]]:
+        """Sceglie casualmente tra prese disponibili, altrimenti scarta casuale."""
         del kwargs
 
         if not hand:
@@ -106,14 +116,18 @@ class EasyAI(AIStrategy):
         return chosen, []
 
     def choose_card(self, hand, table_cards, **kwargs):
+        """Helper compatibile con interfaccia legacy basata su sola carta."""
         chosen_card, _ = self.choose_move(hand, table_cards, **kwargs)
         return chosen_card
 
 
 class NormalAI(AIStrategy):
+    """Strategia intermedia orientata a valore immediato della presa."""
+
     STRATEGY_LOG_NAME = "normal"
 
     def choose_move(self, hand, table_cards, **kwargs) -> Tuple[Optional[Card], List[Card]]:
+        """Valuta tutte le prese e massimizza una chiave di utilita locale."""
         del kwargs
 
         if not hand:
@@ -171,15 +185,19 @@ class NormalAI(AIStrategy):
         return chosen, []
 
     def choose_card(self, hand, table_cards, **kwargs):
+        """Helper compatibile con interfaccia legacy basata su sola carta."""
         chosen_card, _ = self.choose_move(hand, table_cards, **kwargs)
         return chosen_card
 
 
 class ExpertAI(AIStrategy):
+    """Strategia avanzata: minimizza rischio scopa e bilancia obiettivi tattici."""
+
     STRATEGY_LOG_NAME = "expert"
     PRIMIERA_VALUES = VALORI_PRIMIERA
 
     def __init__(self, difficulty: str = "esperto", enable_scopa_cache: bool = True, scopa_cache_size: int = 256) -> None:
+        """Inizializza caching probabilistico per analisi rischio avversario."""
         super().__init__(difficulty)
         self.enable_scopa_cache = enable_scopa_cache
         self.scopa_cache_size = max(32, scopa_cache_size)
@@ -193,6 +211,7 @@ class ExpertAI(AIStrategy):
         seen_cards=None,
         deck_size=None,
     ) -> Tuple[Optional[Card], List[Card]]:
+        """Sceglie la mossa esperta considerando Tavolo, rischio e stato squadra."""
         del deck_size
 
         if not hand:
@@ -224,10 +243,12 @@ class ExpertAI(AIStrategy):
         seen_cards=None,
         deck_size=None,
     ):
+        """Helper compatibile con interfaccia legacy basata su sola carta."""
         chosen_card, _ = self.choose_move(hand, table_cards, player_scores=player_scores, seen_cards=seen_cards, deck_size=deck_size)
         return chosen_card
 
     def _choose_safe_card_empty_table(self, hand, seen_cards):
+        """Con Tavolo vuoto privilegia la carta che riduce la scopa avversaria."""
         candidates = []
         for card in hand:
             value, suit = card
@@ -265,12 +286,14 @@ class ExpertAI(AIStrategy):
         return best
 
     def _calculate_real_primiera_gain(self, capture_combo: List[Card], player_scores: dict) -> int:
+        """Calcola guadagno Primiera reale rispetto alle carte gia possedute."""
         if not player_scores:
             return sum(self.PRIMIERA_VALUES.get(card[0], 0) for card in capture_combo)
 
         current_captured = player_scores.get("team_captured", [])
 
         def get_best_per_suit(cards: List[Card]) -> Dict[str, int]:
+            """Restituisce il miglior valore Primiera per ogni seme."""
             best = {"Denari": 0, "Coppe": 0, "Spade": 0, "Bastoni": 0}
             for value, suit in cards:
                 points = self.PRIMIERA_VALUES.get(value, 0)
@@ -288,7 +311,9 @@ class ExpertAI(AIStrategy):
         return hypothetical_total - current_total
 
     def _choose_strategic_card_with_table(self, hand, table_cards, seen_cards, player_scores=None):
+        """Pipeline decisionale esperta con priorita per scopa, sicurezza e valore."""
         moves = []
+        # Pass 1: genera tutte le mosse candidate (prese e scarti) con metriche.
         for card in hand:
             legal_captures = ScoringEngine.filter_min_card_captures(ScoringEngine.find_captures(card, table_cards))
             if legal_captures:
@@ -329,6 +354,7 @@ class ExpertAI(AIStrategy):
 
         candidates_evaluated = len(moves)
 
+        # Pass 2: se posso fare scopa subito, e la priorita assoluta.
         scopa_now = [move for move in moves if move["makes_scopa"]]
         if scopa_now:
             best = max(
@@ -344,6 +370,7 @@ class ExpertAI(AIStrategy):
             best["candidates_evaluated"] = candidates_evaluated
             return best
 
+        # Pass 3: tra le prese seleziona solo quelle che non concedono scopa.
         safe_captures = [move for move in moves if move["is_capture"] and move["scopa_prob"] <= 1e-9]
         if safe_captures:
             best = max(
@@ -369,6 +396,7 @@ class ExpertAI(AIStrategy):
             best["candidates_evaluated"] = candidates_evaluated
             return best
 
+        # Pass 4: se non ci sono prese sicure, prova uno scarto difensivo.
         discard_moves = [move for move in moves if not move["is_capture"]]
         if discard_moves:
             best = min(
@@ -388,6 +416,7 @@ class ExpertAI(AIStrategy):
             best["candidates_evaluated"] = candidates_evaluated
             return best
 
+        # Pass 5: fallback estremo, scegli la presa meno rischiosa disponibile.
         best = min(
             moves,
             key=lambda move: (
@@ -412,11 +441,13 @@ class ExpertAI(AIStrategy):
         hand_cards,
         played_card,
     ) -> float:
+        """Stima probabilita che il prossimo avversario faccia Scopa."""
         if not table_after_move:
             return 0.0
 
         cache_key = self._build_scopa_cache_key(table_after_move, seen_cards, hand_cards, played_card)
         if self.enable_scopa_cache and cache_key in self._scopa_cache:
+            # LRU: una stima gia nota viene promossa per restare calda in cache.
             self._scopa_cache.move_to_end(cache_key)
             return self._scopa_cache[cache_key]
 
@@ -432,6 +463,7 @@ class ExpertAI(AIStrategy):
         scopa_cards = 0
         for opponent_card in opponent_candidates:
             captures = ScoringEngine.find_captures(opponent_card, table_after_move)
+            # Se la combinazione di presa copre tutto il Tavolo, la carta induce Scopa.
             if captures and captures[0] and len(captures[0]) == len(table_after_move):
                 scopa_cards += 1
 
@@ -444,6 +476,7 @@ class ExpertAI(AIStrategy):
         return probability
 
     def _build_scopa_cache_key(self, table_after_move, seen_cards, hand_cards, played_card) -> Tuple[Any, ...]:
+        """Costruisce chiave deterministica per cache probabilita scopa."""
         return (
             tuple(sorted(table_after_move)),
             tuple(sorted(hand_cards)),
@@ -452,6 +485,7 @@ class ExpertAI(AIStrategy):
         )
 
 def get_ai_strategy(difficulty: str = "normale") -> AIStrategy:
+    """Factory strategia AI con fallback sicuro su livello normale."""
     strategies = {
         "divertimento": EasyAI,
         "normale": NormalAI,

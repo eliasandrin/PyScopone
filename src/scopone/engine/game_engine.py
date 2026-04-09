@@ -28,6 +28,7 @@ class GameEngine:
     """Main game engine for Scopone card game."""
 
     def __init__(self, num_players: int = 4, player_names: Optional[List[str]] = None, game_mode: str = MODE_QUICK) -> None:
+        """Inizializza stato partita, giocatori e punteggi di sessione."""
         self.num_players = min(max(num_players, MIN_PLAYERS), MAX_PLAYERS)
         self.game_mode = game_mode if game_mode in (MODE_QUICK, MODE_TOURNAMENT) else MODE_QUICK
         self.target_score = TARGET_SCORE_TOURNAMENT
@@ -55,9 +56,11 @@ class GameEngine:
         self.tournament_scores = self._build_empty_session_scores()
 
     def _create_deck(self) -> List[Card]:
+        """Costruisce il mazzo italiano completo da 40 carte."""
         return [(value, suit) for suit in SEMI for value in range(CARD_VALUE_MIN, CARD_VALUE_MAX + 1)]
 
     def _initialize_players(self, player_names: Optional[List[str]]) -> None:
+        """Crea i giocatori e assegna team quando la modalita e a 4 player."""
         self.players = []
         for index in range(self.num_players):
             name = player_names[index] if player_names and index < len(player_names) else f"Giocatore {index + 1}"
@@ -68,6 +71,7 @@ class GameEngine:
             self.players.append(Player(name, index, is_ai=not is_human, is_human=is_human, team=team))
 
     def reset(self, preserve_session: bool = False) -> None:
+        """Resetta mano corrente; opzionalmente mantiene storico torneo."""
         self.deck = self._create_deck()
         self.deck_remaining = []
         self.table = []
@@ -93,6 +97,7 @@ class GameEngine:
             player.reset()
 
     def deal_cards(self) -> None:
+        """Distribuisce carte iniziali in base al formato 2 o 4 giocatori."""
         random.shuffle(self.deck)
 
         initial_table_cards = INITIAL_TABLE_CARDS_BY_MODE.get(self.num_players, 4)
@@ -119,6 +124,7 @@ class GameEngine:
         self.deck_remaining = []
 
     def restock_cards(self) -> None:
+        """Esegue il restock nel formato a 2 giocatori quando il deck residuo lo consente."""
         if self.num_players != 2 or not self.deck_remaining:
             return
 
@@ -135,9 +141,11 @@ class GameEngine:
         self.deck_remaining = self.deck_remaining[required_cards:]
 
     def get_current_player(self) -> Player:
+        """Restituisce il giocatore di turno corrente."""
         return self.players[self.current_player_idx]
 
     def get_human_player(self) -> Player:
+        """Restituisce il player umano, con fallback al primo indice."""
         for player in self.players:
             if player.is_human:
                 return player
@@ -150,6 +158,7 @@ class GameEngine:
         capture_combo: Optional[List[Card]] = None,
         decision_log: Optional[Dict[str, Any]] = None,
     ) -> bool:
+        """Esegue una giocata completa e aggiorna stato, log e transizioni round."""
         player = self.players[player_idx]
         if not player.has_card(card):
             return False
@@ -173,6 +182,8 @@ class GameEngine:
             player.capture_cards(captured_combo + [card])
 
             if not self.table:
+                # Regola Scopa: svuotare il Tavolo vale punto solo se non e
+                # l'ultima carta assoluta della mano/smazzata.
                 is_last_card_of_game = all(len(current.hand) == 0 for current in self.players)
                 if not is_last_card_of_game:
                     player.add_sweep()
@@ -229,6 +240,7 @@ class GameEngine:
         return self._choose_capture_combo(card, possible_captures, preferred_capture)
 
     def next_player(self) -> None:
+        """Avanza il turno secondo l'ordine di gioco impostato nel progetto."""
         self.current_player_idx = (self.current_player_idx - 1) % self.num_players
 
     def get_live_tournament_scores(self) -> Dict[int, int]:
@@ -238,6 +250,7 @@ class GameEngine:
         return dict((team_id, score.get("total", 0)) for team_id, score in self.tournament_scores.items())
 
     def end_game(self) -> dict:
+        """Chiude round corrente e, se necessario, anche l'intera sessione."""
         round_summary = {
             "round_complete": True,
             "session_complete": False,
@@ -257,6 +270,7 @@ class GameEngine:
         round_summary["table_cards_after"] = self.table.copy()
 
         if self.game_mode == MODE_QUICK:
+            # In partita rapida il punteggio del round coincide con il finale.
             self.final_scores = self._clone_scores(self.round_scores)
             self._record_round_history(self.final_scores, session_complete=True)
             self.game_active = False
@@ -270,6 +284,8 @@ class GameEngine:
         round_summary["tournament_scores"] = self._clone_scores(tournament_score_list)
 
         if self._has_tournament_winner():
+            # In torneo la sessione termina solo quando una squadra/player
+            # supera il target cumulativo.
             self._record_round_history(self.final_scores, session_complete=True)
             self.game_active = False
             round_summary["session_complete"] = True
@@ -282,6 +298,7 @@ class GameEngine:
         return round_summary
 
     def start_next_round(self) -> None:
+        """Prepara la smazzata successiva mantenendo i punteggi cumulativi."""
         # Rotate dealer and keep cumulative session data while resetting hands/table.
         self.dealer_idx = self._previous_turn_index(self.dealer_idx)
         self.round_number += 1
@@ -289,6 +306,7 @@ class GameEngine:
         self.deal_cards()
 
     def _build_empty_session_scores(self) -> Dict[int, Dict[str, Any]]:
+        """Costruisce lo scheletro punteggi per sessione (team o singoli)."""
         entries: List[Dict[str, Any]] = []
         if self.num_players == 4 and all(player.team is not None for player in self.players):
             entries = [
@@ -314,6 +332,7 @@ class GameEngine:
         return dict((entry["team_id"], entry) for entry in entries)
 
     def _create_session_entry(self, entity_id: int, player_name: str, members: List[str], team_id: int) -> Dict[str, Any]:
+        """Crea un record punteggio iniziale con tutti i campi attesi dalla UI."""
         return {
             "entity_id": entity_id,
             "team_id": team_id,
@@ -332,6 +351,7 @@ class GameEngine:
         }
 
     def _accumulate_tournament_scores(self, round_scores: List[Dict[str, Any]]) -> None:
+        """Somma i risultati del round nel totale cumulativo di torneo."""
         score_lookup = self.tournament_scores
         for round_score in round_scores:
             team_id = round_score["team_id"]
@@ -362,6 +382,7 @@ class GameEngine:
             cumulative_score["total"] += round_score.get("total", 0)
 
     def _get_sorted_tournament_scores(self) -> List[Dict[str, Any]]:
+        """Restituisce classifica torneo ordinata per totale decrescente."""
         return sorted(
             [self._clone_score_entry(score) for score in self.tournament_scores.values()],
             key=lambda score: score.get("total", 0),
@@ -369,11 +390,13 @@ class GameEngine:
         )
 
     def _has_tournament_winner(self) -> bool:
+        """Verifica se almeno un totale ha raggiunto il target di torneo."""
         if not self.tournament_scores:
             return False
         return max(score.get("total", 0) for score in self.tournament_scores.values()) >= self.target_score
 
     def _record_round_history(self, scores: List[Dict[str, Any]], session_complete: bool) -> None:
+        """Persistenza storica del round per risultati, replay e debug decisionale."""
         winners = ScoringEngine.get_game_winners(scores)
         self.round_history.append(
             {
@@ -391,6 +414,7 @@ class GameEngine:
         )
 
     def _previous_turn_index(self, index: int) -> int:
+        """Calcola l'indice precedente nel giro turni circolare."""
         return (index - 1) % self.num_players
 
     def _choose_capture_combo(
@@ -399,6 +423,7 @@ class GameEngine:
         possible_captures: List[List[Card]],
         preferred_capture: Optional[List[Card]] = None,
     ) -> List[Card]:
+        """Seleziona la presa valida rispettando vincoli min-card e priorita."""
         legal_captures = ScoringEngine.filter_min_card_captures(possible_captures)
         if not legal_captures:
             return []
@@ -412,9 +437,12 @@ class GameEngine:
         return max(legal_captures, key=self._capture_priority_key)
 
     def _capture_priority_key(self, combo: List[Card]) -> Tuple[int, int, int, int, Tuple[Card, ...]]:
+        """Chiave ordinamento prese: 7b, Denari, numero carte, Primiera, tie-break."""
         denari_count = sum(1 for card in combo if card[1] == DENARI_SUIT)
         contains_settebello = 1 if SETTEBELLO_CARD in combo else 0
         primiera_value = ScoringEngine.calculate_primiera(combo)
+        # Ordine lessicografico voluto dal dominio: prima obiettivi ad alto
+        # valore (Settebello/Denari), poi volume presa e infine tie-break stabile.
         return (
             contains_settebello,
             denari_count,
@@ -424,6 +452,7 @@ class GameEngine:
         )
 
     def _normalize_capture_combo(self, combo: List[Card]) -> Tuple[Card, ...]:
+        """Normalizza una combo per confronti deterministici indipendenti dall'ordine."""
         return tuple(sorted(combo))
 
     def _normalize_decision_log(
@@ -433,6 +462,7 @@ class GameEngine:
         captured_combo: List[Card],
         decision_log: Optional[Dict[str, Any]],
     ) -> Dict[str, Any]:
+        """Uniforma il decision log per garantire schema stabile a UI e test."""
         base_log = {
             "strategy": "human" if player.is_human else "normal",
             "candidates_evaluated": 0,
@@ -452,6 +482,7 @@ class GameEngine:
         return normalized
 
     def _clone_score_entry(self, score: Dict[str, Any]) -> Dict[str, Any]:
+        """Copia difensiva di una score entry con sotto-strutture annidate."""
         cloned = dict(score)
         if "members" in cloned:
             cloned["members"] = list(cloned["members"])
@@ -464,9 +495,11 @@ class GameEngine:
         return cloned
 
     def _clone_scores(self, scores: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Copia profonda leggera dell'elenco punteggi."""
         return [self._clone_score_entry(score) for score in scores]
 
     def _clone_moves(self, moves: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Copia i log mossa per evitare mutazioni retroattive nello storico."""
         cloned_moves = []
         for move in moves:
             cloned_moves.append(
@@ -482,6 +515,7 @@ class GameEngine:
         return cloned_moves
 
     def get_game_state(self) -> dict:
+        """Snapshot serializzabile dello stato runtime per UI/debug."""
         return {
             "game_mode": self.game_mode,
             "dealer_idx": self.dealer_idx,
@@ -505,6 +539,7 @@ class GameEngine:
         }
 
     def get_game_stats(self) -> dict:
+        """Raccoglie statistiche aggregate di partita/sessione per report UI."""
         return {
             "total_games": len(self.round_history),
             "current_game_moves": len(self.moves_played),

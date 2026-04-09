@@ -21,6 +21,8 @@ PRIMIERA_SUITS = tuple(SEMI)
 
 
 class ScorePoints(TypedDict):
+    """Punteggi legacy per categoria usati da UI e compatibilita test."""
+
     cards: int
     coins: int
     settebello: int
@@ -29,17 +31,23 @@ class ScorePoints(TypedDict):
 
 
 class PointsBreakdown(TypedDict):
+    """Punti diretti non condizionati da confronti con avversari."""
+
     settebello: int
     sweeps: int
 
 
 class Bonuses(TypedDict):
+    """Bonus assegnati per primati univoci (Carte, Denari, Primiera)."""
+
     cards: int
     coins: int
     primiera: int
 
 
 class RawStats(TypedDict):
+    """Statistiche grezze aggregate prima dell'assegnazione bonus."""
+
     entity_id: int
     team_id: int
     player: str
@@ -54,6 +62,8 @@ class RawStats(TypedDict):
 
 
 class ScoreEntry(TypedDict):
+    """Record punteggio finale standardizzato per entita di scoring."""
+
     entity_id: int
     team_id: int
     player: str
@@ -71,6 +81,8 @@ class ScoreEntry(TypedDict):
 
 
 class SupportsScoringPlayer(Protocol):
+    """Interfaccia minima richiesta a un player per il calcolo punteggi."""
+
     id: int
     name: str
     captured: List[Card]

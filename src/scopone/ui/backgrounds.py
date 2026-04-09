@@ -4,6 +4,7 @@ import pygame
 
 
 def draw_prismatic_background(surface, variant="menu") -> None:
+    """Disegna sfondo prismatico condiviso, variato per tipo scena."""
     width, height = surface.get_size()
     _draw_vertical_gradient(surface, (4, 8, 20), (14, 30, 58))
 
@@ -15,6 +16,7 @@ def draw_prismatic_background(surface, variant="menu") -> None:
 
 
 def _draw_vertical_gradient(surface, top_color, bottom_color) -> None:
+    """Riempie la surface con gradiente verticale interpolato."""
     width, height = surface.get_size()
     for y in range(height):
         ratio = float(y) / max(height - 1, 1)
@@ -27,6 +29,7 @@ def _draw_vertical_gradient(surface, top_color, bottom_color) -> None:
 
 
 def _draw_central_glow(surface, width: int, height: int, variant: str) -> None:
+    """Applica alone centrale multilayer per profondita visiva."""
     center = (int(width * 0.5), int(height * 0.54))
     radius = int(min(width, height) * (0.38 if variant == "menu" else 0.34))
 
@@ -42,6 +45,7 @@ def _draw_central_glow(surface, width: int, height: int, variant: str) -> None:
 
 
 def _draw_prismatic_planes(surface, width: int, height: int, variant: str) -> None:
+    """Disegna piani geometrici e streak di luce sullo sfondo."""
     plane_specs = [
         ((0.04, 0.88), (0.34, 0.52), (0.7, 0.92), (0.48, 1.02), (165, 210, 255, 34)),
         ((0.15, 0.24), (0.52, 0.06), (0.82, 0.54), (0.42, 0.78), (110, 160, 245, 22)),
@@ -78,6 +82,7 @@ def _draw_prismatic_planes(surface, width: int, height: int, variant: str) -> No
 
 
 def _draw_star_field(surface, width: int, height: int) -> None:
+    """Aggiunge punti luce secondari per dettaglio atmosferico."""
     star_specs = [
         (0.12, 0.22, 2), (0.24, 0.6, 2), (0.44, 0.16, 2), (0.54, 0.1, 2),
         (0.61, 0.19, 2), (0.67, 0.26, 2), (0.82, 0.56, 2), (0.72, 0.72, 1),

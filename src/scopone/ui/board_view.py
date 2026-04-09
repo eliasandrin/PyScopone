@@ -25,11 +25,13 @@ class RenderBoard:
 
     @classmethod
     def from_engine(cls, engine) -> "RenderBoard":
+        """Costruisce uno stato visuale iniziale sincronizzato con l'engine."""
         board = cls()
         board.sync_from_engine(engine)
         return board
 
     def sync_from_engine(self, engine) -> None:
+        """Sincronizza Tavolo, Mani e Prese visibili dallo stato di gioco reale."""
         self.render_table_cards = list(engine.table)
         self.render_hand_cards = dict((player.id, list(player.hand)) for player in engine.players)
         self.render_captures = {0: [], 1: []}
@@ -49,12 +51,15 @@ class RenderBoard:
         self.render_deck_count = len(engine.deck_remaining)
 
     def ensure_player(self, player_id: int) -> List[Card]:
+        """Restituisce la mano renderizzata del player, creandola se assente."""
         return self.render_hand_cards.setdefault(player_id, [])
 
     def ensure_team(self, team_id: int) -> List[Card]:
+        """Restituisce la pila prese del team, creandola se assente."""
         return self.render_captures.setdefault(team_id, [])
 
     def ensure_sweeps(self, team_id: int) -> int:
+        """Restituisce il numero scope del team, inizializzandolo se mancante."""
         return self.render_sweeps.setdefault(team_id, 0)
 
 
@@ -62,9 +67,13 @@ class BoardView:
     """Computes board layout and orchestrates board rendering calls for MatchScene."""
 
     def __init__(self, scene) -> None:
+        """Memorizza riferimento scena per calcoli layout contestuali."""
         self.scene = scene
 
     def calculate_layout(self, width: int, height: int):
+        """Calcola layout responsivo completo della schermata di partita."""
+        # card_presence_scale aumenta leggermente la presenza visiva delle carte
+        # per mantenere leggibilita su schermi grandi.
         ui_scale = self._clamp_float(min(width / 1920.0, height / 1080.0), 0.85, 1.4)
         card_presence_scale = self._clamp_float(ui_scale * 1.14, 0.95, 1.6)
         hand_card_size = self._scale_card_size(CARD_SIZE_HAND, card_presence_scale, minimum=(100, 150))
@@ -90,6 +99,8 @@ class BoardView:
         left_label_block_w = left_label_rect_est.height
         right_label_block_w = right_label_rect_est.height
 
+        # Le riserve laterali/superiori evitano sovrapposizioni tra Tavolo,
+        # etichette player e mani in entrambi i formati (2p/4p).
         reserve_top = top_cards_block_h + top_label_rect_est.height + (min_gap * 3)
         reserve_bottom = bottom_cards_block_h + bottom_label_rect.height + (min_gap * 3)
         reserve_left = left_cards_block_w + left_label_block_w + (min_gap * 3)
@@ -105,6 +116,8 @@ class BoardView:
         overflow_x = max(0, (reserve_left + reserve_right + min_table_width) - width)
         overflow_y = max(0, (reserve_top + reserve_bottom + min_table_height) - height)
 
+        # Se il layout minimo non entra a schermo, riduce simmetricamente le
+        # riserve mantenendo comunque margini funzionali.
         if overflow_x:
             reduce_each = int((overflow_x + 1) / 2)
             reserve_left = max(min_gap * 2 + left_cards_block_w + left_label_block_w, reserve_left - reduce_each)
@@ -227,6 +240,7 @@ class BoardView:
         }
 
     def render_table_and_players(self, renderer, layout, mouse_pos) -> None:
+        """Esegue il rendering orchestrato di Tavolo, controlli e giocatori."""
         self.scene._draw_table(renderer, layout["table_rect"])
         self.scene._draw_deck_anchor(renderer, layout["deck_rect"])
         self.scene._draw_table_cards(renderer, layout["table_rect"])
@@ -250,6 +264,7 @@ class BoardView:
         hand_card_size,
         small_card_size,
     ):
+        """Posiziona le pile Prese in modo stabile rispetto alle mani."""
         hand_slots = INITIAL_HAND_CARDS.get(self.scene.engine.num_players, 9)
         pile_w, pile_h = small_card_size
         piles = {}
@@ -269,6 +284,7 @@ class BoardView:
         piles[0] = team1_rect
 
         if self.scene.engine.num_players == 4:
+            # In 4 player, la squadra 2 e legata alla mano verticale destra.
             ai3_fixed_centerx = right_player_rect.centerx
             ai3_hand_fixed_top = self._get_fixed_vertical_hand_top(right_player_rect, small_card_size, hand_slots)
             team2_rect = pygame.Rect(0, 0, pile_h, pile_w)
@@ -276,6 +292,7 @@ class BoardView:
             team2_rect.bottom = ai3_hand_fixed_top - 40
             team2_rect = self._clamp_rect_inside_screen(team2_rect, screen_width, screen_height)
         else:
+            # In 2 player, la seconda pila resta speculare alla mano superiore.
             ai1_fixed_centery = top_player_rect.centery
             ai1_hand_fixed_right = self._get_fixed_horizontal_hand_right(
                 top_player_rect,
@@ -293,6 +310,7 @@ class BoardView:
         return piles
 
     def _estimate_player_label_rect(self, player_id: int, hand_card_size) -> pygame.Rect:
+        """Stima bounding-box etichetta player/team in base a scala corrente."""
         player = None
         for current in self.scene.engine.players:
             if current.id == player_id:
@@ -326,6 +344,7 @@ class BoardView:
         return pygame.Rect(0, 0, width, height)
 
     def _get_fixed_horizontal_hand_left(self, rect: pygame.Rect, card_size, slot_count: int, spacing_min: int, spacing_max: int) -> int:
+        """Calcola l'ascissa sinistra di una mano orizzontale a spaziatura vincolata."""
         card_width = card_size[0]
         slots = max(1, slot_count)
         spacing = max(spacing_min, min(spacing_max, (rect.width - card_width) // slots))
@@ -333,6 +352,7 @@ class BoardView:
         return rect.centerx - (total_width // 2)
 
     def _get_fixed_horizontal_hand_right(self, rect: pygame.Rect, card_size, slot_count: int, spacing_min: int, spacing_max: int) -> int:
+        """Calcola l'ascissa destra di una mano orizzontale a spaziatura vincolata."""
         card_width = card_size[0]
         slots = max(1, slot_count)
         spacing = max(spacing_min, min(spacing_max, (rect.width - card_width) // slots))
@@ -340,6 +360,7 @@ class BoardView:
         return rect.centerx + (total_width // 2)
 
     def _get_fixed_vertical_hand_top(self, rect: pygame.Rect, card_size, slot_count: int) -> int:
+        """Calcola la coordinata top per una mano verticale con carte ruotate."""
         rotated_height = card_size[0]
         slots = max(1, slot_count)
         spacing = max(50, min(92, (rect.height - rotated_height) // slots))
@@ -347,23 +368,28 @@ class BoardView:
         return rect.centery - (total_height // 2)
 
     def _clamp_rect_inside_screen(self, rect: pygame.Rect, width: int, height: int, padding: int = 8) -> pygame.Rect:
+        """Ritaglia un rect dentro i limiti schermo con margine di sicurezza."""
         clamped = rect.copy()
         clamped.x = max(padding, min(clamped.x, width - clamped.width - padding))
         clamped.y = max(padding, min(clamped.y, height - clamped.height - padding))
         return clamped
 
     def _clamp(self, value: int, minimum: int, maximum: int) -> int:
+        """Clamp intero helper."""
         return max(minimum, min(maximum, value))
 
     def _clamp_float(self, value: float, minimum: float, maximum: float) -> float:
+        """Clamp float helper."""
         return max(minimum, min(maximum, value))
 
     def _scale_card_size(self, base_size, scale: float, minimum) -> tuple:
+        """Scala dimensioni carta mantenendo limiti minimi/massimi controllati."""
         return (
             self._clamp(int(base_size[0] * scale), minimum[0], int(base_size[0] * 1.6)),
             self._clamp(int(base_size[1] * scale), minimum[1], int(base_size[1] * 1.6)),
         )
 
     def _equidistant_gap(self, available_space: int, text_extent: int, cards_extent: int, minimum_gap: int) -> int:
+        """Distribuisce gap uniforme tra blocco testo, carte e margini."""
         gap = int((available_space - text_extent - cards_extent) / 3)
         return max(minimum_gap, gap)

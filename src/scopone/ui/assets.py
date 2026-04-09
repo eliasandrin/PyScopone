@@ -44,6 +44,7 @@ class AssetManager:
     ATLAS_CAPTURE_HIGHLIGHT_CELL = (5, 10)  # 1-based: row 5, col 10
 
     def __init__(self) -> None:
+        """Inizializza percorsi asset, cache e indice carte/atlas."""
         self.assets_root = Path(__file__).resolve().parents[3] / "assets"
         self.cards_root = self.assets_root / "cards"
         self.fonts_root = self.assets_root / "fonts"
@@ -59,6 +60,7 @@ class AssetManager:
         self.custom_title_font = self._find_custom_title_font()
 
     def _build_card_index(self):
+        """Indicizza i file carta disponibili per lookup case-insensitive."""
         index = {}  # type: Dict[str, Path]
         if not self.cards_root.exists():
             return index
@@ -70,6 +72,7 @@ class AssetManager:
         return index
 
     def _load_atlas_surface(self) -> Optional[pygame.Surface]:
+        """Carica atlas trevisane con fallback multipli su estensione/percorso."""
         atlas_candidates = []
         for root in (self.cards_root, self.assets_root):
             for ext in self.ATLAS_EXTENSIONS:
@@ -97,6 +100,7 @@ class AssetManager:
         return None
 
     def _build_atlas_index(self, atlas_surface: Optional[pygame.Surface]) -> Dict[str, pygame.Rect]:
+        """Mappa ogni carta al rettangolo di crop corretto nell'atlas."""
         if atlas_surface is None:
             return {}
 
@@ -140,6 +144,7 @@ class AssetManager:
         return index
 
     def _split_axis(self, axis_size: int, segments: int) -> Tuple[Tuple[int, int], ...]:
+        """Divide un asse in segmenti quasi uniformi preservando i resti pixel."""
         if segments <= 0 or axis_size <= 0:
             return tuple()
 
@@ -151,6 +156,7 @@ class AssetManager:
         return tuple(bounds)
 
     def _inset_crop_rect(self, x: int, y: int, w: int, h: int) -> pygame.Rect:
+        """Ritaglia il bordo cella atlas per evitare linee separatrici tra carte."""
         if w <= 0 or h <= 0:
             return pygame.Rect(x, y, 0, 0)
 
@@ -164,21 +170,25 @@ class AssetManager:
         return rect
 
     def _card_filename(self, value: int, suit: str) -> str:
+        """Restituisce naming canonico file carta (<valore>_<seme>.jpg)."""
         return "{0}_{1}.jpg".format(value, suit.lower())
 
     def _warn_once(self, key: str, message: str) -> None:
+        """Logga warning una sola volta per evitare rumore nel runtime."""
         if key in self._warned:
             return
         self._warned.add(key)
         LOGGER.warning(message)
 
     def get_font(self, size: int, bold: bool = False, role: str = "body") -> pygame.font.Font:
+        """Restituisce font da cache in base a ruolo/dimensione/grassetto."""
         cache_key = (role, size, bold)
         if cache_key not in self.font_cache:
             self.font_cache[cache_key] = self._load_font(size, bold=bold, role=role)
         return self.font_cache[cache_key]
 
     def _find_custom_title_font(self):
+        """Cerca un font custom in assets/fonts da usare per titoli."""
         if not self.fonts_root.exists():
             return None
 
@@ -189,6 +199,7 @@ class AssetManager:
         return None
 
     def _load_font(self, size: int, bold: bool = False, role: str = "body") -> pygame.font.Font:
+        """Carica font con priorita custom title e fallback di sistema."""
         if role == "title":
             if self.custom_title_font is not None:
                 return pygame.font.Font(str(self.custom_title_font), size)
@@ -201,6 +212,7 @@ class AssetManager:
         return pygame.font.SysFont(FONT_NAME, size, bold=bold)
 
     def get_card_surface(self, card: Card, size: Tuple[int, int], face_up: bool = True) -> pygame.Surface:
+        """Restituisce surface carta sagomata, front/back, con cache per size."""
         cache_key = (f"{card}-{face_up}", size)
         if cache_key in self.surface_cache:
             return self.surface_cache[cache_key]
@@ -211,6 +223,7 @@ class AssetManager:
         return surface
 
     def get_card_back_surface(self, size: Tuple[int, int]) -> pygame.Surface:
+        """Restituisce retro carta sagomato e cachato per dimensione."""
         cache_key = ("card-back", size)
         cached = self.surface_cache.get(cache_key)
         if cached is not None:
@@ -222,6 +235,7 @@ class AssetManager:
         return surface
 
     def get_capture_highlight_surface(self, size: Tuple[int, int]) -> pygame.Surface:
+        """Restituisce overlay highlight sagomato per preview prese."""
         cache_key = ("capture-highlight", size)
         cached = self.surface_cache.get(cache_key)
         if cached is not None:
@@ -239,6 +253,7 @@ class AssetManager:
         target_size: Optional[Tuple[int, int]] = None,
         preserve_aspect_ratio: bool = True,
     ) -> Optional[pygame.Surface]:
+        """Restituisce carta base o renderizzata a target size con cache dedicata."""
         cache_key = self._card_filename(value, suit)
         if target_size is not None:
             if target_size[0] <= 0 or target_size[1] <= 0:
@@ -279,6 +294,7 @@ class AssetManager:
         target_size: Tuple[int, int],
         preserve_aspect_ratio: bool = True,
     ) -> pygame.Surface:
+        """Ridimensiona una carta con eventuale letterbox per aspect ratio stabile."""
         target_w, target_h = target_size
         source_w, source_h = source.get_size()
 
@@ -300,6 +316,7 @@ class AssetManager:
         return canvas
 
     def _load_card_image(self, card: Card, size: Tuple[int, int]) -> pygame.Surface:
+        """Carica carta frontale da atlas/file o genera fallback testuale."""
         value, suit = card
         base = self.get_card(
             suit,
@@ -317,6 +334,7 @@ class AssetManager:
         return self._build_card_fallback(card, size)
 
     def _get_atlas_card(self, cache_key: str) -> Optional[pygame.Surface]:
+        """Estrae una carta dall'atlas gia indicizzato, con validazioni bounding."""
         if self.atlas_surface is None:
             return None
 
@@ -342,6 +360,7 @@ class AssetManager:
             return None
 
     def _load_card_file(self, cache_key: str, suit: str, value: int) -> Optional[pygame.Surface]:
+        """Prova vari naming file fisico carta prima del fallback finale."""
         for candidate in self._card_candidates(value, suit):
             path = self.card_index.get(candidate.lower())
             if path is None:
@@ -361,6 +380,7 @@ class AssetManager:
             return None
 
     def _card_candidates(self, value, suit):
+        """Genera combinazioni filename con varianti maiuscole/minuscole estensione."""
         suit_lower = suit.lower()
         suit_title = suit.capitalize()
         return [
@@ -373,6 +393,7 @@ class AssetManager:
         ]
 
     def _build_card_fallback(self, card: Card, size: Tuple[int, int]) -> pygame.Surface:
+        """Genera una carta minimale leggibile quando manca l'immagine reale."""
         surface = pygame.Surface(size, pygame.SRCALPHA)
         surface.fill(CARD_FACE_COLOR)
         pygame.draw.rect(surface, CARD_BORDER_COLOR, surface.get_rect(), width=2, border_radius=10)
@@ -389,6 +410,7 @@ class AssetManager:
         return surface
 
     def _build_card_back(self, size: Tuple[int, int]) -> pygame.Surface:
+        """Costruisce retro carta da atlas/custome image o skin generata."""
         atlas_back = self._get_atlas_cell_surface(*self.ATLAS_CARD_BACK_CELL)
         if atlas_back is not None:
             return self._render_card_to_target(atlas_back, size, preserve_aspect_ratio=True)
@@ -408,6 +430,7 @@ class AssetManager:
         return surface
 
     def _build_capture_highlight(self, size: Tuple[int, int]) -> pygame.Surface:
+        """Costruisce overlay highlight da atlas o fallback disegnato."""
         atlas_highlight = self._get_atlas_cell_surface(*self.ATLAS_CAPTURE_HIGHLIGHT_CELL)
         if atlas_highlight is not None:
             sanitized = self._sanitize_highlight_surface(atlas_highlight)
@@ -421,6 +444,7 @@ class AssetManager:
         return surface
 
     def _apply_card_shape(self, source: pygame.Surface) -> pygame.Surface:
+        """Applica maschera con angoli arrotondati uniforme a ogni surface carta."""
         width, height = source.get_size()
         if width <= 0 or height <= 0:
             return source
@@ -435,12 +459,14 @@ class AssetManager:
         return shaped
 
     def get_card_corner_radius(self, size: Tuple[int, int]) -> int:
+        """Calcola raggio angoli carta proporzionale alla dimensione corrente."""
         width, height = size
         if width <= 0 or height <= 0:
             return 0
         return max(3, min(width, height) // 24)
 
     def _sanitize_highlight_surface(self, source: pygame.Surface) -> pygame.Surface:
+        """Rende trasparenti i corner opachi del layer highlight atlas."""
         # Most overlay cells use a solid corner background; make that color transparent
         # so the highlight does not appear as an opaque white rectangle on the table.
         corner = source.get_at((0, 0))
@@ -456,6 +482,7 @@ class AssetManager:
         return sanitized
 
     def _get_atlas_cell_surface(self, row_1_based: int, col_1_based: int) -> Optional[pygame.Surface]:
+        """Ritorna una singola cella atlas in coordinate 1-based."""
         if self.atlas_surface is None:
             return None
 
@@ -469,6 +496,7 @@ class AssetManager:
             return None
 
     def _get_atlas_cell_rect(self, row_1_based: int, col_1_based: int) -> Optional[pygame.Rect]:
+        """Calcola rect crop di una cella atlas con controlli limiti."""
         if row_1_based < 1 or col_1_based < 1:
             return None
 

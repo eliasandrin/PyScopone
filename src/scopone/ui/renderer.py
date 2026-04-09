@@ -25,17 +25,21 @@ class Renderer:
     """Draws panels, text, buttons and cards."""
 
     def __init__(self, surface: pygame.Surface, assets) -> None:
+        """Inizializza helper di rendering con surface attiva e asset manager."""
         self.surface = surface
         self.assets = assets
         self._audio_icon_cache = {}
 
     def set_surface(self, surface: pygame.Surface) -> None:
+        """Aggiorna la surface target dopo resize/fullscreen switch."""
         self.surface = surface
 
     def clear(self, color=BG_COLOR) -> None:
+        """Pulisce frame corrente con colore di sfondo."""
         self.surface.fill(color)
 
     def draw_panel(self, rect, background, border=BORDER_COLOR, border_width=2, radius=PANEL_RADIUS) -> pygame.Rect:
+        """Disegna pannello arrotondato con bordo e restituisce rect normalizzato."""
         rect = pygame.Rect(rect)
         pygame.draw.rect(self.surface, background, rect, border_radius=radius)
         pygame.draw.rect(self.surface, border, rect, width=border_width, border_radius=radius)
@@ -51,6 +55,7 @@ class Renderer:
         align: str = "topleft",
         font_role: str = "body",
     ):
+        """Renderizza testo allineato usando font cache dell'AssetManager."""
         font = self.assets.get_font(size, bold=bold, role=font_role)
         rendered = font.render(text, True, color)
         rect = rendered.get_rect()
@@ -70,6 +75,7 @@ class Renderer:
         font_role: str = "body",
         line_spacing: int = 4,
     ) -> None:
+        """Renderizza testo multilinea con wrapping basato su larghezza disponibile."""
         rect = pygame.Rect(rect)
         font = self.assets.get_font(size, bold=bold, role=font_role)
         lines = self._wrap_text_to_width(text, font, rect.width, fallback_chars=max_chars)
@@ -95,6 +101,7 @@ class Renderer:
         tone: str = "neutral",
         font_size: int = 20,
     ) -> pygame.Rect:
+        """Disegna bottone tematizzato (accent/success/danger/warning/neutral)."""
         rect = pygame.Rect(rect)
         if tone == "accent":
             background = ACCENT_ALT_COLOR if hovered else ACCENT_COLOR
@@ -117,6 +124,7 @@ class Renderer:
         return rect
 
     def draw_card(self, card, rect, face_up: bool = True, angle: int = 0, is_animating: bool = False) -> pygame.Rect:
+        """Disegna carta con gestione rotazione, ombra e cornice dinamica."""
         rect = pygame.Rect(rect)
         source_size = rect.size
         normalized_angle = angle % 360
@@ -171,6 +179,7 @@ class Renderer:
         return blit_rect
 
     def draw_card_shadow(self, rect, alpha: int = 90, offset=(0, 6)) -> None:
+        """Disegna ombra multilayer soft sotto la carta per migliorare profondita."""
         rect = pygame.Rect(rect)
         shadow_rect = rect.move(offset).inflate(-8, -10)
         if shadow_rect.width <= 0 or shadow_rect.height <= 0:
@@ -192,6 +201,7 @@ class Renderer:
         self.surface.blit(shadow_surface, shadow_rect.topleft)
 
     def draw_card_capture_highlight(self, rect, alpha: int = 112) -> None:
+        """Sovrappone highlight trasparente sulle carte selezionate in preview presa."""
         rect = pygame.Rect(rect)
         applied_alpha = max(0, min(255, alpha))
 
@@ -200,6 +210,7 @@ class Renderer:
         self.surface.blit(overlay, rect.topleft)
 
     def draw_audio_toggle(self, rect, muted: bool = False, hovered: bool = False) -> pygame.Rect:
+        """Disegna pulsante audio con stato mute e hover."""
         rect = pygame.Rect(rect)
         background = (34, 51, 80) if hovered else (22, 35, 58)
         border = (130, 170, 220) if hovered else (96, 130, 178)
@@ -216,6 +227,7 @@ class Renderer:
         return rect
 
     def _get_audio_icon_surface(self, size: int, muted: bool) -> pygame.Surface:
+        """Genera o recupera da cache l'icona audio rasterizzata."""
         cache_key = (size, muted)
         cached = self._audio_icon_cache.get(cache_key)
         if cached is not None:
@@ -250,6 +262,7 @@ class Renderer:
         return scaled
 
     def _wrap_text_to_width(self, text: str, font: pygame.font.Font, max_width: int, fallback_chars: int = 48):
+        """Effettua wrapping testuale rispettando width in pixel del font corrente."""
         lines = []
         for paragraph in text.splitlines() or [""]:
             words = paragraph.split()

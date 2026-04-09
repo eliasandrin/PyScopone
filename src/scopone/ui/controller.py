@@ -5,6 +5,7 @@ class InputController:
     """Forwards raw Pygame events to the active scene."""
 
     def process(self, events, scene) -> None:
+        """Instrada ogni evento Pygame verso la scena attualmente attiva."""
         if scene is None:
             return
         for event in events:

@@ -20,6 +20,7 @@ class MatchCoordinator:
     """Owns turn sequencing, AI pacing, and game-resolution transitions."""
 
     def __init__(self, app: "GameApp", engine: Optional["GameEngine"], scene: "MatchScene") -> None:
+        """Inizializza stato coordinatore e timer pensiero AI."""
         self.app = app
         self.engine = engine
         self.scene = scene
@@ -29,6 +30,7 @@ class MatchCoordinator:
         self.pending_resolution_result = None
 
     def bind_engine(self, engine: Optional["GameEngine"]) -> None:
+        """Aggancia un nuovo engine e resetta ogni stato transitorio."""
         self.engine = engine
         self.pending_ai_player_id = None
         self.ai_thinking_timer = 0.0
@@ -36,8 +38,10 @@ class MatchCoordinator:
         self.pending_resolution_result = None
 
     def can_accept_player_input(self) -> bool:
+        """Valida se l'input umano e accettabile nello stato corrente della scena."""
         if self.engine is None or not self.engine.game_active:
             return False
+        # Blocca input durante overlay/menu/animazioni per evitare race tra UI e engine.
         if self.scene.menu_open or self.scene.deal_sequence_pending or self.scene.animations.has_active() or self.scene.round_overlay.active:
             return False
         if self.scene.capture_choice_active:
@@ -48,11 +52,13 @@ class MatchCoordinator:
         return current_player.is_human
 
     def on_player_move(self, card: "Card", capture_combo=None) -> None:
+        """Gestisce mossa umana, scelta presa e avvio sequenza animata."""
         if self.engine is None or not self.can_accept_player_input():
             return
 
         current_player = self.engine.get_current_player()
         legal_captures = ScoringEngine.filter_min_card_captures(ScoringEngine.find_captures(card, self.engine.table))
+        # Se esistono piu prese minime legali, la scelta e demandata all'overlay UI.
         if capture_combo is None and len(legal_captures) > 1:
             self.scene.request_capture_choice(card, legal_captures)
             return
@@ -77,6 +83,7 @@ class MatchCoordinator:
         self.scene._queue_move_sequence(current_player, card, source_rect, captured_cards, captured_rects, self.engine.last_move_result)
 
     def update(self, dt: float) -> None:
+        """Avanza macchina a stati dei turni e fa partire il turno AI quando pronto."""
         if self.engine is None or self.result_dispatched:
             return
 
@@ -102,6 +109,7 @@ class MatchCoordinator:
             return
 
         if self.pending_ai_player_id != current_player.id:
+            # Nuovo turno AI: armare un delay rende la partita leggibile e naturale.
             self.pending_ai_player_id = current_player.id
             self.ai_thinking_timer = AI_THINKING_DELAY_MS / 1000.0
             self.scene._append_log("{0} sta pensando...".format(current_player.name))
@@ -112,6 +120,7 @@ class MatchCoordinator:
             self._play_ai_turn()
 
     def on_move_animation_finished(self, move_result) -> None:
+        """Riceve fine animazione mossa e completa eventuale restock/risoluzione."""
         if self.engine is None or move_result is None:
             return
 
@@ -128,6 +137,7 @@ class MatchCoordinator:
         self.complete_turn_resolution()
 
     def complete_turn_resolution(self) -> None:
+        """Conclude turno corrente: overlay round, next player o risultati finali."""
         if self.engine is None:
             return
 
@@ -135,6 +145,7 @@ class MatchCoordinator:
         self.pending_resolution_result = None
 
         if self.scene.settings.get("game_mode") == MODE_TOURNAMENT and move_result.get("round_ended"):
+            # In torneo si interrompe il flusso per mostrare riepilogo round.
             self.scene.show_round_end_overlay(move_result)
             self.pending_ai_player_id = None
             self.ai_thinking_timer = 0.0
@@ -150,6 +161,7 @@ class MatchCoordinator:
             return
 
     def on_round_confirmed(self, move_result) -> None:
+        """Ripristina stato post-overlay e decide eventuale dispatch risultati."""
         self.pending_ai_player_id = None
         self.ai_thinking_timer = 0.0
         self.pending_resolution_result = None
@@ -160,6 +172,7 @@ class MatchCoordinator:
             return
 
     def _play_ai_turn(self) -> None:
+        """Esegue una mossa AI completa e avvia le relative animazioni."""
         if self.engine is None:
             return
 
@@ -197,6 +210,7 @@ class MatchCoordinator:
         )
 
     def _build_ai_player_scores(self, player) -> dict:
+        """Prepara vista catture del team corrente per valutazione AI expert."""
         team_captured = list(player.captured)
         if self.engine is not None and self.engine.num_players == 4 and player.team is not None:
             team_captured = []
@@ -206,6 +220,7 @@ class MatchCoordinator:
         return {"team_captured": team_captured}
 
     def _build_human_decision_log(self, card: "Card", selected_capture_combo, legal_captures) -> dict:
+        """Normalizza il decision log umano per audit e storico mosse."""
         reasoning = "giocatore umano: scarto" if not selected_capture_combo else "giocatore umano: presa scelta"
         return {
             "strategy": "human",
@@ -216,6 +231,7 @@ class MatchCoordinator:
         }
 
     def _dispatch_results(self) -> None:
+        """Invia alla ResultsScene punteggi finali e storico match."""
         if self.engine is None or self.result_dispatched:
             return
 

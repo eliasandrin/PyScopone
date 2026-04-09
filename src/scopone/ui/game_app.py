@@ -18,6 +18,7 @@ class GameApp:
     """Coordinates the Pygame lifecycle, scenes, and rendering loop."""
 
     def __init__(self, headless: bool = False) -> None:
+        """Inizializza sottosistemi Pygame, manager UI e scena iniziale."""
         if headless:
             os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
             os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
@@ -45,6 +46,7 @@ class GameApp:
         self.scene_manager.change(SetupScene(self))
 
     def show_setup(self) -> None:
+        """Passa alla scena di configurazione partita."""
         from scopone.ui.scenes.setup_scene import SetupScene
 
         self.scene_manager.change(SetupScene(self))
@@ -56,6 +58,7 @@ class GameApp:
         show_all_cards: bool,
         game_mode: str = MODE_QUICK,
     ) -> None:
+        """Crea e attiva la MatchScene con i parametri scelti dall'utente."""
         from scopone.ui.scenes.match_scene import MatchScene
 
         self.scene_manager.change(
@@ -71,24 +74,29 @@ class GameApp:
         )
 
     def show_results(self, final_scores, settings, log_messages):
+        """Apre la scena risultati passando punteggi e storico utile alla UI."""
         from scopone.ui.scenes.results_scene import ResultsScene
 
         self.scene_manager.change(ResultsScene(self, final_scores, settings, log_messages))
 
     def request_quit(self) -> None:
+        """Richiede uscita pulita dal loop principale."""
         self.running = False
 
     def toggle_mute(self) -> None:
+        """Attiva/disattiva audio globale mantenendo stato coerente in UI."""
         self.is_muted = not self.is_muted
         self.audio.set_muted(self.is_muted)
 
     def toggle_fullscreen(self) -> None:
+        """Alterna fullscreen/windowed e riallinea renderer sulla nuova surface."""
         target_fullscreen = not self.is_fullscreen
         self.screen = self._set_display_mode(self.windowed_size, fullscreen=target_fullscreen)
         self.renderer.set_surface(self.screen)
         self.is_fullscreen = target_fullscreen
 
     def _set_display_mode(self, size, fullscreen=False):
+        """Configura modalita finestra e restituisce nuova display surface."""
         # Rebuilding the display surface forces every scene to recompute its layout
         # against the new screen size on the next render pass.
         if fullscreen:
@@ -107,6 +115,7 @@ class GameApp:
         return screen
 
     def process_input(self) -> None:
+        """Raccoglie eventi globali e delega input alla scena attiva."""
         events = pygame.event.get()
         for event in events:
             if event.type == pygame.QUIT:
@@ -122,13 +131,16 @@ class GameApp:
         self.controller.process(events, self.scene_manager.current_scene)
 
     def update_logic(self, dt: float) -> None:
+        """Aggiorna la logica della scena attiva con delta-time."""
         self.scene_manager.update(dt)
 
     def render_graphics(self) -> None:
+        """Renderizza frame corrente e presenta il buffer video."""
         self.scene_manager.render(self.renderer)
         pygame.display.flip()
 
     def run(self, max_frames=None):
+        """Esegue game loop principale fino a richiesta uscita o frame limite."""
         frames = 0
         while self.running:
             dt = self.clock.tick(FPS) / 1000.0
@@ -141,10 +153,12 @@ class GameApp:
         return 0
 
     def shutdown(self) -> None:
+        """Rilascia risorse Pygame a fine applicazione."""
         pygame.quit()
 
 
 def main() -> int:
+    """Entry point applicativo per avvio client Pygame."""
     app = GameApp()
     try:
         return app.run()

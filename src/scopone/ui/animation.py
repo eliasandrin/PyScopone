@@ -8,10 +8,12 @@ import pygame
 
 
 def _lerp(start: float, end: float, progress: float) -> float:
+    """Interpolazione lineare tra due valori float."""
     return start + ((end - start) * progress)
 
 
 def _apply_easing(progress: float, easing: str) -> float:
+    """Applica funzione easing supportata al progresso normalizzato."""
     progress = min(max(progress, 0.0), 1.0)
     if easing == "ease_out":
         inverse = 1.0 - progress
@@ -41,6 +43,7 @@ class CardTween:
         shadow_offset=(0, 6),
         interpolate_size: bool = True,
     ) -> None:
+        """Configura tween carta (posizione, rotazione, delay e callback)."""
         self.card = card
         self.start_rect = pygame.Rect(start_rect)
         self.target_rect = pygame.Rect(target_rect)
@@ -63,6 +66,7 @@ class CardTween:
         self.completed = False
 
     def update(self, dt: float) -> bool:
+        """Aggiorna stato tween; ritorna True quando animazione e conclusa."""
         if self.completed:
             return True
 
@@ -84,6 +88,7 @@ class CardTween:
         return False
 
     def get_rect(self) -> pygame.Rect:
+        """Restituisce rettangolo corrente interpolato della carta."""
         if not self.started and self.delay > 0.0:
             return self.start_rect.copy()
 
@@ -104,6 +109,7 @@ class CardTween:
         )
 
     def get_angle(self) -> int:
+        """Restituisce angolo corrente interpolato della carta."""
         if not self.started and self.delay > 0.0:
             return int(round(self.start_angle))
 
@@ -116,15 +122,18 @@ class AnimationManager:
     """Tracks active card tweens and renders them above the static board."""
 
     def __init__(self) -> None:
+        """Inizializza registri animazioni attive e aggiunte differite."""
         self.animations = []  # type: List[CardTween]
         self._pending_additions = []  # type: List[CardTween]
         self._updating = False
 
     def clear(self) -> None:
+        """Rimuove ogni animazione attiva o pending."""
         self.animations = []
         self._pending_additions = []
 
     def add(self, animation: CardTween) -> CardTween:
+        """Aggiunge tween; durante update lo mette in coda pending."""
         if self._updating:
             self._pending_additions.append(animation)
         else:
@@ -132,9 +141,11 @@ class AnimationManager:
         return animation
 
     def has_active(self) -> bool:
+        """Indica se esistono animazioni ancora in corso."""
         return bool(self.animations)
 
     def update(self, dt: float) -> None:
+        """Avanza tutte le animazioni e invoca callback di completamento."""
         active = []
         completed = []
         self._updating = True
@@ -158,6 +169,7 @@ class AnimationManager:
             animation.on_start = None
 
     def render(self, renderer) -> None:
+        """Renderizza tweens ordinati per layer sopra lo stato statico."""
         # Hard cleanup guard: completed tweens must never be rendered again.
         self.animations = [animation for animation in self.animations if not animation.completed]
         for animation in sorted(self.animations, key=lambda item: item.layer):
