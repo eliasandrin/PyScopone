@@ -113,9 +113,22 @@ class ResultsScene(Scene):
         return "{0} | {1} | {2} | {3}".format(match_type, mode_label, difficulty, visibility)
 
     def _build_title(self) -> str:
+        winner_team_id = self._get_winner_team_id()
+        if winner_team_id is None:
+            if self.settings.get("game_mode") == MODE_TOURNAMENT:
+                return "PAREGGIO - TORNEO CONCLUSO"
+            return "PAREGGIO - RISULTATI PARTITA"
+
+        winner_team_label = "SQUADRA {0}".format(winner_team_id + 1)
         if self.settings.get("game_mode") == MODE_TOURNAMENT:
-            return "HA VINTO IL TORNEO A 21 PUNTI!"
-        return "RISULTATI PARTITA"
+            return "{0} VINCE IL TORNEO A 21 PUNTI!".format(winner_team_label)
+        return "{0} VINCE LA PARTITA!".format(winner_team_label)
+
+    def _get_winner_team_id(self):
+        left_total, right_total = self._extract_final_totals()
+        if left_total == right_total:
+            return None
+        return 0 if left_total > right_total else 1
 
     def _extract_round_rows(self):
         rows = []

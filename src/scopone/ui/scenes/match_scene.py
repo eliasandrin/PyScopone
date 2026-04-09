@@ -811,7 +811,7 @@ class MatchScene(Scene):
                             "primiera": score.get("primiera_value", 0),
                             "settebello": 1 if score.get("has_settebello") else 0,
                             "sweeps": sweeps_value,
-                            "total": (live_base.get(team_id, 0) + hand_total) if is_tournament else hand_total,
+                            "total": live_base.get(team_id, hand_total) if is_tournament else hand_total,
                         }
                     )
                 return rows
@@ -834,7 +834,7 @@ class MatchScene(Scene):
                         "primiera": score.get("primiera_value", 0),
                         "settebello": 1 if score.get("has_settebello") else 0,
                         "sweeps": sweeps_value,
-                        "total": (live_base.get(team_id, 0) + hand_total) if is_tournament else hand_total,
+                        "total": live_base.get(team_id, hand_total) if is_tournament else hand_total,
                     }
                 )
             return rows
